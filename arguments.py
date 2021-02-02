@@ -36,7 +36,7 @@ def get_args():
                         help='The evaluation batch size (default: 1)')
     parser.add_argument('--test_batch_size', type=int, default=10,
                         help='The Testing batch size (default: 10)')
-    parser.add_argument('--epochs', type=int, default=2500,
+    parser.add_argument('--epochs', type=int, default=200,
                         help='The number of epoches (default: 500)')
     parser.add_argument('--device_ids', nargs='+', type=int, default=[0, 1])
     parser.add_argument('--no_cuda', action='store_true', default=False,

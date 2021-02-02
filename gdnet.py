@@ -341,7 +341,7 @@ class GDNet(nn.Module):
 
 class LitGDNet(pl.LightningModule):
     def __init__(self, backbone_path=None):
-        super(GDNet, self).__init__()
+        super(LitGDNet, self).__init__()
         # params
 
         # backbone
