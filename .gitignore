@@ -1,10 +1,5 @@
-/backbone/resnext/resnext_101_32x4d.pth
-/GDD/
-/results/
-/joint_transforms.py
-/loss.py
-/train.py
-/evaluation.py
-/excel/
-/MSD/
-/ckpt/
+.vscode
+*__pycache__
+ckpt
+GDD
+dss_crf

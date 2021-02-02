@@ -76,15 +76,34 @@ def main():
                 f1 = np.array(transforms.Resize((h, w))(to_pil(f1)))
                 f2 = np.array(transforms.Resize((h, w))(to_pil(f2)))
                 f3 = np.array(transforms.Resize((h, w))(to_pil(f3)))
+                #################################### My Addition ####################################
+                image1_size = img.size
+                new_image = Image.new('RGB',(2*image1_size[0], image1_size[1]), (250,250,250))
+                img_res = Image.fromarray(f3)
+                new_image.paste(img,(0,0))
+                new_image.paste(img_res,(image1_size[0],0))
+                new_image.save(os.path.join(gdd_results_root, '%s_%s' % (exp_name, args['snapshot']),
+                                                      img_name[:-4] + "_both" +".png"))
+                #####################################################################################
+
                 if args['crf']:
-                    # f1 = crf_refine(np.array(img.convert('RGB')), f1)
-                    # f2 = crf_refine(np.array(img.convert('RGB')), f2)
+                    f1 = crf_refine(np.array(img.convert('RGB')), f1)
+                    f2 = crf_refine(np.array(img.convert('RGB')), f2)
                     f3 = crf_refine(np.array(img.convert('RGB')), f3)
 
+                ######################################### Old ############################################
                 # Image.fromarray(f1).save(os.path.join(ckpt_path, exp_name, '%s_%s' % (exp_name, args['snapshot']),
                 #                                       img_name[:-4] + "_h.png"))
                 # Image.fromarray(f2).save(os.path.join(ckpt_path, exp_name, '%s_%s' % (exp_name, args['snapshot']),
                 #                                       img_name[:-4] + "_l.png"))
+                # Image.fromarray(f3).save(os.path.join(gdd_results_root, '%s_%s' % (exp_name, args['snapshot']),
+                #                                       img_name[:-4] + ".png"))
+
+
+                Image.fromarray(f1).save(os.path.join(gdd_results_root, '%s_%s' % (exp_name, args['snapshot']),
+                                                      img_name[:-4] + "_h.png"))
+                Image.fromarray(f2).save(os.path.join(gdd_results_root, '%s_%s' % (exp_name, args['snapshot']),
+                                                      img_name[:-4] + "_l.png"))
                 Image.fromarray(f3).save(os.path.join(gdd_results_root, '%s_%s' % (exp_name, args['snapshot']),
                                                       img_name[:-4] + ".png"))
 

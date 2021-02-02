@@ -1,22 +1,24 @@
-"""
- @Time    : 2020/3/15 22:09
- @Author  : TaylorMei
- @E-mail  : mhy666@mail.dlut.edu.cn
- 
- @Project : CVPR2020_GDNet
- @File    : gdnet.py
- @Function:
- 
-"""
+import os
+import numpy as np
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from torchvision import transforms
 
+# from misc import check_mkdir, crf_refine
+# from dataset import ImageFolder
 from backbone.resnext.resnext101_regular import ResNeXt101
 
+import pytorch_lightning as pl
+from utils.optimizer import get_optim
+from PIL import Image
+
+from utils.loss import lovasz_hinge
 
 ###################################################################
-# ########################## CBAM #################################
+############################ CBAM #################################
 ###################################################################
 class BasicConv(nn.Module):
     def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True,
@@ -127,7 +129,7 @@ class CBAM(nn.Module):
 
 
 ###################################################################
-# ########################## LCFI #################################
+############################ LCFI #################################
 ###################################################################
 class LCFI(nn.Module):
     def __init__(self, input_channels, dr1=1, dr2=2, dr3=3, dr4=4):
@@ -243,9 +245,101 @@ class LCFI(nn.Module):
 
 
 ###################################################################
-# ########################## NETWORK ##############################
+############################ NETWORK ##############################
 ###################################################################
 class GDNet(nn.Module):
+    def __init__(self, backbone_path=None):
+        super(GDNet, self).__init__()
+        # params
+
+        # backbone
+        resnext = ResNeXt101(backbone_path)
+        self.layer0 = resnext.layer0
+        self.layer1 = resnext.layer1
+        self.layer2 = resnext.layer2
+        self.layer3 = resnext.layer3
+        self.layer4 = resnext.layer4
+
+        self.h5_conv = LCFI(2048, 1, 2, 3, 4)
+        self.h4_conv = LCFI(1024, 1, 2, 3, 4)
+        self.h3_conv = LCFI(512, 1, 2, 3, 4)
+        self.l2_conv = LCFI(256, 1, 2, 3, 4)
+
+        # h fusion
+        self.h5_up = nn.UpsamplingBilinear2d(scale_factor=2)
+        self.h3_down = nn.AvgPool2d((2, 2), stride=2)
+        self.h_fusion = CBAM(896)
+        self.h_fusion_conv = nn.Sequential(nn.Conv2d(896, 896, 3, 1, 1), nn.BatchNorm2d(896), nn.ReLU())
+
+        # l fusion
+        self.l_fusion_conv = nn.Sequential(nn.Conv2d(64, 64, 3, 1, 1), nn.BatchNorm2d(64), nn.ReLU())
+        self.h2l = nn.ConvTranspose2d(896, 1, 8, 4, 2)
+
+        # final fusion
+        self.h_up_for_final_fusion = nn.ConvTranspose2d(896, 256, 8, 4, 2)
+        self.final_fusion = CBAM(320)
+        self.final_fusion_conv = nn.Sequential(nn.Conv2d(320, 320, 3, 1, 1), nn.BatchNorm2d(320), nn.ReLU())
+
+        # predict conv
+        self.h_predict = nn.Conv2d(896, 1, 3, 1, 1)
+        self.l_predict = nn.Conv2d(64, 1, 3, 1, 1)
+        self.final_predict = nn.Conv2d(320, 1, 3, 1, 1)
+
+        for m in self.modules():
+            if isinstance(m, nn.ReLU):
+                m.inplace = True
+
+    def forward(self, x):
+        # x: [batch_size, channel=3, h, w]
+        layer0 = self.layer0(x)  # [-1, 64, h/2, w/2]
+        layer1 = self.layer1(layer0)  # [-1, 256, h/4, w/4]
+        layer2 = self.layer2(layer1)  # [-1, 512, h/8, w/8]
+        layer3 = self.layer3(layer2)  # [-1, 1024, h/16, w/16]
+        layer4 = self.layer4(layer3)  # [-1, 2048, h/32, w/32]
+
+        h5_conv = self.h5_conv(layer4)
+        h4_conv = self.h4_conv(layer3)
+        h3_conv = self.h3_conv(layer2)
+        l2_conv = self.l2_conv(layer1)
+
+        # h fusion
+        h5_up = self.h5_up(h5_conv)
+        h3_down = self.h3_down(h3_conv)
+        h_fusion = self.h_fusion(torch.cat((h5_up, h4_conv, h3_down), 1))
+        h_fusion = self.h_fusion_conv(h_fusion)
+
+        # l fusion
+        l_fusion = self.l_fusion_conv(l2_conv)
+        h2l = self.h2l(h_fusion)
+        l_fusion = F.sigmoid(h2l) * l_fusion
+
+        # final fusion
+        h_up_for_final_fusion = self.h_up_for_final_fusion(h_fusion)
+        final_fusion = self.final_fusion(torch.cat((h_up_for_final_fusion, l_fusion), 1))
+        final_fusion = self.final_fusion_conv(final_fusion)
+
+        # h predict
+        h_predict = self.h_predict(h_fusion)
+
+        # l predict
+        l_predict = self.l_predict(l_fusion)
+
+        # final predict
+        final_predict = self.final_predict(final_fusion)
+
+        # rescale to original size
+        h_predict = F.upsample(h_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
+        l_predict = F.upsample(l_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
+        final_predict = F.upsample(final_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
+
+        return torch.sigmoid(h_predict), torch.sigmoid(l_predict), torch.sigmoid(final_predict)
+
+
+###################################################################
+# ###################### LIGHTNINH NETWORK ########################
+###################################################################
+
+class LitGDNet(pl.LightningModule):
     def __init__(self, backbone_path=None):
         super(GDNet, self).__init__()
         # params
