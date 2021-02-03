@@ -38,11 +38,12 @@ def get_args():
                         help='The Testing batch size (default: 10)')
     parser.add_argument('--epochs', type=int, default=200,
                         help='The number of epoches (default: 500)')
-    parser.add_argument('--device_ids', nargs='+', type=int, default=[0, 1])
+    parser.add_argument('--device_ids', nargs='+', type=int, default=[0, 1],
+                        help = "GPU devices (default [0, 1])")
     parser.add_argument('--no_cuda', action='store_true', default=False,
                         help='disables CUDA training')
-    parser.add_argument('--w_losses', nargs='+', type=int, default=[1, 1, 1, 1],
-                        help='Weights for the 4 losses')
+    parser.add_argument('--w_losses', nargs='+', type=int, default=[1, 1, 1],
+                        help='Weights for the 3 losses (default [1, 1, 1])')
     parser.add_argument('--val_every', type=int, default=5,
                         help='Do validation epoch after how many Training epoch (default: 5)')
     parser.add_argument('--save_top', type=int, default=8,
@@ -67,8 +68,10 @@ def get_args():
                         help='Path to the checkpoints (default: ckpt/)')
     parser.add_argument('--exp_name', type=str, default="MirrorNet",
                         help='Name of the folder of the snapshot to load (default: GDNet)')
-    parser.add_argument('--backbone_path', type=str, default=root_path+"/backbone/resnext/resnext_101_32x4d.pth",
-                        help='Path to the backbone (default:'+ root_path+'/backbone/resnext/resnext_101_32x4d.pth')
+    parser.add_argument('--backbone_path', type=str, default=None,
+                        help='Path to the backbone (default:None')
+    # parser.add_argument('--backbone_path', type=str, default=root_path+"/backbone/resnext/resnext_101_32x4d.pth",
+    #                     help='Path to the backbone (default:'+ root_path+'/backbone/resnext/resnext_101_32x4d.pth')
     parser.add_argument('--gdd_training_root', type=str, default=root_path+"/GDNet/train",
                         help='Path to the training data (default: '+root_path+'/GDNet/train')
     parser.add_argument('--gdd_eval_root', type=str, default=root_path+"/GDNet/eval",

@@ -7,8 +7,8 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
-# from misc import check_mkdir, crf_refine
-# from dataset import ImageFolder
+from misc import check_mkdir, crf_refine
+from dataset import ImageFolder
 from backbone.resnext.resnext101_regular import ResNeXt101
 
 import pytorch_lightning as pl
@@ -340,11 +340,19 @@ class GDNet(nn.Module):
 ###################################################################
 
 class LitGDNet(pl.LightningModule):
-    def __init__(self, backbone_path=None):
+    def __init__(self, args, backbone_path=None):
         super(LitGDNet, self).__init__()
         # params
 
         # backbone
+        self.args = args
+        self.testing_path = args.gdd_testing_root
+        self.training_path = args.gdd_training_root
+        self.eval_path = args.gdd_eval_root
+        self.train_acc = pl.metrics.Accuracy()
+        self.valid_acc = pl.metrics.Accuracy()
+        self.test_acc = pl.metrics.Accuracy()
+
         resnext = ResNeXt101(backbone_path)
         self.layer0 = resnext.layer0
         self.layer1 = resnext.layer1
@@ -380,6 +388,18 @@ class LitGDNet(pl.LightningModule):
         for m in self.modules():
             if isinstance(m, nn.ReLU):
                 m.inplace = True
+
+        ###############################
+        # Defining the transoformations
+        self.img_transform = transforms.Compose([
+            transforms.Resize((self.args.scale, self.args.scale)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+        self.mask_transform = transforms.Compose([
+            transforms.Resize((self.args.scale, self.args.scale)),
+            transforms.ToTensor()
+        ])
 
     def forward(self, x):
         # x: [batch_size, channel=3, h, w]
@@ -429,75 +449,100 @@ class LitGDNet(pl.LightningModule):
     ###############################################
     # Ligtning functions
     def training_step(self, batch, batch_idx):
-        # inputs = batch[0]
-        # outputs = batch[1]
-        # # inputs = torch.from_numpy(inputs)
-        # # outputs = torch.tensor(outputs)
+        inputs = batch[0]
+        outputs = batch[1]
 
-        # inputs.requires_grad=True
-        # outputs.requires_grad=True
-        # f_4_gpu, f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
+        inputs.requires_grad=True
+        outputs.requires_grad=True
+        f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
 
-        # loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
-        # loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
-        # loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
-        # loss4 = lovasz_hinge(f_4_gpu, outputs, per_image=False)*self.args.w_losses[3]
-        # loss = loss1 + loss2 + loss3 + loss4
-        # self.log('train_loss', loss)
-        # # self.logger.experiment.log('train_loss', loss)
-        # # # This does not work
-        # # # This give back the error: RuntimeError: grad can be implicitly created only for scalar outputs
-        # # return {'loss': loss}
-        # return loss
-        pass
+        loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
+        loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
+        loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
+        loss = loss1 + loss2 + loss3
+        self.log('train_loss', loss, on_epoch=True)
+        self.train_acc(f_1_gpu, outputs)
+        self.log('train_acc', self.train_acc, on_epoch=True)
+
+        return loss
 
     def configure_optimizers(self):
-        # optimizer = get_optim(self, self.args)
-        # return optimizer
-        pass
+        optimizer = get_optim(self, self.args)
+        return optimizer
 
     def train_dataloader(self):
-        # dataset = ImageFolder(self.training_path, img_transform= self.img_transform, target_transform= self.mask_transform)
+        dataset = ImageFolder(self.training_path, img_transform= self.img_transform, target_transform= self.mask_transform)
         
-        # loader = DataLoader(dataset, batch_size= self.args.batch_size, num_workers = 4, shuffle=self.args.shuffle_dataset)
+        loader = DataLoader(dataset, batch_size= self.args.batch_size, num_workers = 4, shuffle=self.args.shuffle_dataset)
 
-        # return loader
-        pass
+        return loader
 
     def val_dataloader(self):
-        # eval_dataset = ImageFolder(self.eval_path, img_transform= self.img_transform, target_transform= self.mask_transform)
-        # loader = DataLoader(eval_dataset, batch_size= self.args.eval_batch_size, num_workers = 4, shuffle=False)
-        # self.eval_set = eval_dataset
-        # return loader
-        pass
+        eval_dataset = ImageFolder(self.eval_path, img_transform= self.img_transform, target_transform= self.mask_transform)
+        loader = DataLoader(eval_dataset, batch_size= self.args.eval_batch_size, num_workers = 4, shuffle=False)
+        self.eval_set = eval_dataset
+        return loader
 
     def test_dataloader(self):
-        # test_dataset = ImageFolder(self.testing_path, img_transform= self.img_transform, target_transform= self.mask_transform, add_real_imgs = (self.args.developer_mode and not self.args.train))
-        # loader = DataLoader(test_dataset, batch_size= self.args.test_batch_size, num_workers = 4, shuffle=False)
+        test_dataset = ImageFolder(self.testing_path, img_transform= self.img_transform, target_transform= self.mask_transform, add_real_imgs = (self.args.developer_mode and not self.args.train))
+        loader = DataLoader(test_dataset, batch_size= self.args.test_batch_size, num_workers = 4, shuffle=False)
 
-        # return loader
-        pass
+        return loader
+
 
     def validation_step(self, batch, batch_idx):
-        # inputs = batch[0]
-        # outputs = batch[1]
-        # # inputs = torch.from_numpy(inputs)
-        # # outputs = torch.tensor(outputs)
+        inputs = batch[0]
+        outputs = batch[1]
 
-        # inputs.requires_grad=True
-        # outputs.requires_grad=True
-        # f_4_gpu, f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
+        inputs.requires_grad=True
+        outputs.requires_grad=True
+        
+        f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
 
-        # loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
-        # loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
-        # loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
-        # loss4 = lovasz_hinge(f_4_gpu, outputs, per_image=False)*self.args.w_losses[3]
-        # loss = loss1 + loss2 + loss3 + loss4
-        # self.log('val_loss', loss)
-        # # self.logger.experiment.log('val_loss', loss)
-        # return {'val_loss': loss}
-        # # return loss
-        pass
+        loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
+        loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
+        loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
+        loss = loss1 + loss2 + loss3
+
+        self.log('val_loss', loss)
+        self.valid_acc(f_1_gpu, outputs)
+        self.log('val_acc', self.valid_acc)
+        return {'val_loss': loss,}
+
+    # Function which is activated when the validation epoch wnds
+    def validation_epoch_end(self, outputs):
+        # outputs = list of dictionaries
+        avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
+        if self.args.developer_mode:
+            batch = self.eval_set.sample(1)
+            inputs = batch["img"]
+            outputs = batch["mask"]
+            inputs = torch.from_numpy(inputs)
+            outputs = torch.tensor(outputs)
+            if len(self.args.device_ids) > 0:
+                inputs = inputs.cuda(self.args.device_ids[0])
+                outputs = outputs.cuda(self.args.device_ids[0])
+            _, _, f_1_gpu = self(inputs)
+            f_1 = f_1_gpu.data.cpu()
+            rev_size = [batch["size"][0][1], batch["size"][0][0]]
+            image1_size = batch["size"][0]
+            f_1_trans = np.array(transforms.Resize(rev_size)(to_pil(f_1[0])))
+            f_1_crf = crf_refine(np.array(batch["r_img"][0]), f_1_trans)
+            
+            new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
+            img_res = Image.fromarray(f_1_crf)
+            new_image.paste(batch["r_img"][0],(0,0))
+            new_image.paste(batch["r_mask"][0],(image1_size[0],0))
+            new_image.paste(img_res,(image1_size[0]*2,0))
+
+            # The number of validation itteration
+            self.val_iter +=1 
+            new_image.save(os.path.join(self.args.msd_results_root, "Training",
+                                                    "Eval_Epoch: " + str(self.val_iter) +" Eval.png"))
+
+        self.log('avg_val_loss', avg_loss)
+        # self.logger.experiment.log('avg_val_loss', avg_loss)
+
 
 
     def test_step(self, batch, batch_idx):
@@ -547,44 +592,5 @@ class LitGDNet(pl.LightningModule):
         # # return loss
         pass
     
-    # Function which is activated when the validation epoch wnds
-    def validation_epoch_end(self, outputs):
-        # # outputs = list of dictionaries
-        # avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-        # if self.args.developer_mode:
-        #     batch = self.eval_set.sample(1)
-        #     inputs = batch["img"]
-        #     outputs = batch["mask"]
-        #     inputs = torch.from_numpy(inputs)
-        #     outputs = torch.tensor(outputs)
-        #     if len(self.args.device_ids) > 0:
-        #         inputs = inputs.cuda(self.args.device_ids[0])
-        #         outputs = outputs.cuda(self.args.device_ids[0])
-        #     _, _, _, f_1_gpu = self(inputs)
-        #     f_1 = f_1_gpu.data.cpu()
-        #     rev_size = [batch["size"][0][1], batch["size"][0][0]]
-        #     image1_size = batch["size"][0]
-        #     f_1_trans = np.array(transforms.Resize(rev_size)(to_pil(f_1[0])))
-        #     f_1_crf = crf_refine(np.array(batch["r_img"][0]), f_1_trans)
-            
-        #     new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
-        #     img_res = Image.fromarray(f_1_crf)
-        #     new_image.paste(batch["r_img"][0],(0,0))
-        #     new_image.paste(batch["r_mask"][0],(image1_size[0],0))
-        #     new_image.paste(img_res,(image1_size[0]*2,0))
-
-        #     # The number of validation itteration
-        #     self.val_iter +=1 
-        #     new_image.save(os.path.join(self.args.msd_results_root, "Training",
-        #                                             "Eval_Epoch: " + str(self.val_iter) +" Eval.png"))
-
-                
-
-        # # tensorboard_logs = {'avg_val_loss': avg_loss}
-        # # # use key 'log'
-        # # return {'val_loss': avg_loss, 'log': tensorboard_logs}
-        # self.log('avg_val_loss', avg_loss)
-        # # self.logger.experiment.log('avg_val_loss', avg_loss)
+    def test_epoch_end(self, test_step_outputs):  # args are defined as part of pl API
         pass
-    
-

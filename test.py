@@ -28,7 +28,7 @@ import wandb
 # Initializing the arguments for testing
 def init_args(args):
     args.train = True
-    args.batch_size = 20
+    args.batch_size = 15
     args.developer_mode = False
     args.load_model = False
     args.fast_dev_run = True
