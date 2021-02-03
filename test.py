@@ -24,18 +24,15 @@ from utils.loss import lovasz_hinge
 
 import wandb
 
-
 #######################################
 # Initializing the arguments for testing
 def init_args(args):
     args.train = True
-    args.batch_size = 1
-    args.developer_mode = True
-    args.load_model = True
-    args.fast_dev_run = False
+    args.batch_size = 20
+    args.developer_mode = False
+    args.load_model = False
+    args.fast_dev_run = True
     args.crf = True
-    args.device_ids = [0, 1]
-    args.val_every = 5
     args.wandb = False
 
 args = get_args()
@@ -55,6 +52,8 @@ checkpoint_callback = ModelCheckpoint(
 
 tb_logger = pl_loggers.TensorBoardLogger(save_dir = args.log_path,
                                         name = args.log_name)
+wb_logger = pl_loggers.WandbLogger(project = args.log_name)
+
 
 # change the argumnets for testing
 init_args(args)
@@ -95,34 +94,74 @@ if args.wandb:
 #TODO
 # Test the following code
 def main():
-    net = GDNet().cuda(device_ids[0])
-    optimizer = optim.Adam(net.parameters(), lr=args.lr, betas=args.betas)
+    # net = GDNet().cuda(device_ids[0])
+    # optimizer = optim.Adam(net.parameters(), lr=args.lr, betas=args.betas)
 
+    # if args.load_model:
+    #     # print(os.path.join(args.root_path + args.ckpt_path, args.exp_name, args.snapshot + '.pth'))
+    #     print('Load snapshot {} for testing'.format(args.snapshot))
+    #     net.load_state_dict(torch.load(os.path.join(args.ckpt_path, args.exp_name, args.snapshot + '.pth')))
+    #     # net.load_state_dict(torch.load(os.path.join(args.ckpt_path, args.exp_name, args.snapshot + '.pth')))
+    #     print('Load {} succeed!'.format(os.path.join(args.ckpt_path, args.exp_name, args.snapshot + '.pth')))
+
+    # if not args.train:
+    #     net.eval()
+    #     data_path = args.msd_testing_root
+    # else:
+    #     data_path = args.msd_training_root
+    #     eval_path = args.msd_eval_root
+    #     net.train()
+
+    # if args.developer_mode:
+    #     # To include the real images and masks
+    #     dataset = ImageFolder(data_path, img_transform= img_transform, target_transform=mask_transform, add_real_imgs=True)
+    #     eval_dataset = ImageFolder(eval_path, img_transform= img_transform, target_transform=mask_transform, add_real_imgs=True)
+    # else:
+    #     dataset = ImageFolder(data_path, img_transform= img_transform, target_transform=mask_transform)
+    #     eval_dataset = ImageFolder(eval_path, img_transform= img_transform, target_transform=mask_transform)
+
+    # loader = DataLoader(dataset, batch_size= args.batch_size, shuffle=args.shuffle_dataset)
+    # eval_loader = DataLoader(eval_dataset, batch_size = 1, shuffle=False)
+
+    net = LitGDNet(args)
+    # net = net.load_from_checkpoint(args.root_path + args.ckpt_path + "/MirrorNet-epoch=16-val_loss=3.99.ckpt")
     if args.load_model:
-        # print(os.path.join(args.root_path + args.ckpt_path, args.exp_name, args.snapshot + '.pth'))
-        print('Load snapshot {} for testing'.format(args.snapshot))
-        net.load_state_dict(torch.load(os.path.join(args.ckpt_path, args.exp_name, args.snapshot + '.pth')))
-        # net.load_state_dict(torch.load(os.path.join(args.ckpt_path, args.exp_name, args.snapshot + '.pth')))
-        print('Load {} succeed!'.format(os.path.join(args.ckpt_path, args.exp_name, args.snapshot + '.pth')))
-
-    if not args.train:
-        net.eval()
-        data_path = args.msd_testing_root
+        net = LitGDNet.load_from_checkpoint(args.ckpt_path+args.ckpt_name, args=args)
+        print('Loading {} checkpoint.'.format(args.ckpt_path + args.ckpt_name))
+        trainer = Trainer(gpus=args.device_ids,
+                        fast_dev_run = args.fast_dev_run,
+                        accelerator = 'dp',
+                        max_epochs = args.epochs,
+                        callbacks = [checkpoint_callback],
+                        check_val_every_n_epoch = args.val_every,
+                        logger = [tb_logger, wb_logger],
+                        resume_from_checkpoint = args.ckpt_path+args.ckpt_name)
+        print("Checkpoint loaded successfully!")
     else:
-        data_path = args.msd_training_root
-        eval_path = args.msd_eval_root
-        net.train()
+        trainer = Trainer(gpus=args.device_ids,
+                        fast_dev_run = args.fast_dev_run,
+                        accelerator = 'dp',
+                        max_epochs = args.epochs,
+                        callbacks = [checkpoint_callback],
+                        check_val_every_n_epoch = args.val_every,
+                        logger = [tb_logger, wb_logger])
+                        # resume_from_checkpoint = args.root_path + args.ckpt_path + "/MirrorNet-epoch=16-val_loss=3.99.ckpt")
+    
 
-    if args.developer_mode:
-        # To include the real images and masks
-        dataset = ImageFolder(data_path, img_transform= img_transform, target_transform=mask_transform, add_real_imgs=True)
-        eval_dataset = ImageFolder(eval_path, img_transform= img_transform, target_transform=mask_transform, add_real_imgs=True)
+    if args.train:
+        print("Training")
+
+        trainer.fit(net)
+        final_epoch_model_path = args.ckpt_path + "final_epoch.ckpt"
+        trainer.save_checkpoint(final_epoch_model_path)
+
+        print("Done")
+
     else:
-        dataset = ImageFolder(data_path, img_transform= img_transform, target_transform=mask_transform)
-        eval_dataset = ImageFolder(eval_path, img_transform= img_transform, target_transform=mask_transform)
-
-    loader = DataLoader(dataset, batch_size= args.batch_size, shuffle=args.shuffle_dataset)
-    eval_loader = DataLoader(eval_dataset, batch_size = 1, shuffle=False)
+        print("Testing")
+        # trainer.test(model = net,
+        #             ckpt_path = args.ckpt_path+args.ckpt_name)
+        trainer.test(model = net)
 
 
 if __name__ == "__main__":

@@ -425,3 +425,166 @@ class LitGDNet(pl.LightningModule):
         final_predict = F.upsample(final_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
 
         return torch.sigmoid(h_predict), torch.sigmoid(l_predict), torch.sigmoid(final_predict)
+
+    ###############################################
+    # Ligtning functions
+    def training_step(self, batch, batch_idx):
+        # inputs = batch[0]
+        # outputs = batch[1]
+        # # inputs = torch.from_numpy(inputs)
+        # # outputs = torch.tensor(outputs)
+
+        # inputs.requires_grad=True
+        # outputs.requires_grad=True
+        # f_4_gpu, f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
+
+        # loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
+        # loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
+        # loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
+        # loss4 = lovasz_hinge(f_4_gpu, outputs, per_image=False)*self.args.w_losses[3]
+        # loss = loss1 + loss2 + loss3 + loss4
+        # self.log('train_loss', loss)
+        # # self.logger.experiment.log('train_loss', loss)
+        # # # This does not work
+        # # # This give back the error: RuntimeError: grad can be implicitly created only for scalar outputs
+        # # return {'loss': loss}
+        # return loss
+        pass
+
+    def configure_optimizers(self):
+        # optimizer = get_optim(self, self.args)
+        # return optimizer
+        pass
+
+    def train_dataloader(self):
+        # dataset = ImageFolder(self.training_path, img_transform= self.img_transform, target_transform= self.mask_transform)
+        
+        # loader = DataLoader(dataset, batch_size= self.args.batch_size, num_workers = 4, shuffle=self.args.shuffle_dataset)
+
+        # return loader
+        pass
+
+    def val_dataloader(self):
+        # eval_dataset = ImageFolder(self.eval_path, img_transform= self.img_transform, target_transform= self.mask_transform)
+        # loader = DataLoader(eval_dataset, batch_size= self.args.eval_batch_size, num_workers = 4, shuffle=False)
+        # self.eval_set = eval_dataset
+        # return loader
+        pass
+
+    def test_dataloader(self):
+        # test_dataset = ImageFolder(self.testing_path, img_transform= self.img_transform, target_transform= self.mask_transform, add_real_imgs = (self.args.developer_mode and not self.args.train))
+        # loader = DataLoader(test_dataset, batch_size= self.args.test_batch_size, num_workers = 4, shuffle=False)
+
+        # return loader
+        pass
+
+    def validation_step(self, batch, batch_idx):
+        # inputs = batch[0]
+        # outputs = batch[1]
+        # # inputs = torch.from_numpy(inputs)
+        # # outputs = torch.tensor(outputs)
+
+        # inputs.requires_grad=True
+        # outputs.requires_grad=True
+        # f_4_gpu, f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
+
+        # loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
+        # loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
+        # loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
+        # loss4 = lovasz_hinge(f_4_gpu, outputs, per_image=False)*self.args.w_losses[3]
+        # loss = loss1 + loss2 + loss3 + loss4
+        # self.log('val_loss', loss)
+        # # self.logger.experiment.log('val_loss', loss)
+        # return {'val_loss': loss}
+        # # return loss
+        pass
+
+
+    def test_step(self, batch, batch_idx):
+        # global test_iter
+        # inputs = batch[0]
+        # outputs = batch[1]
+        # # inputs = torch.from_numpy(inputs)
+        # # outputs = torch.tensor(outputs)
+        # f_4_gpu, f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
+
+        # loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
+        # loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
+        # loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
+        # loss4 = lovasz_hinge(f_4_gpu, outputs, per_image=False)*self.args.w_losses[3]
+        # loss = loss1 + loss2 + loss3 + loss4
+        # self.log('test_loss', loss)
+        # if self.args.developer_mode:
+        #     real_img = batch[2]
+        #     real_mask = batch[3]
+        #     sq_zero  = real_img[0].squeeze()
+        #     sq_zero = sq_zero.cpu().numpy()
+        #     real_img = Image.fromarray(sq_zero)
+
+        #     sq_m  = real_mask[0].squeeze()
+        #     sq_m = sq_m.cpu().numpy()
+        #     real_mask = Image.fromarray(sq_m)
+
+        #     im_size = real_img.size
+        #     rev_size = [im_size[1], im_size[0]]
+        #     f_1 = f_1_gpu.data.cpu()
+        #     f_1_trans = np.array(transforms.Resize(rev_size)(to_pil(f_1[0])))
+        #     f_1_crf = crf_refine(np.array(real_img), f_1_trans)
+        #     new_image = Image.new('RGB',(3*im_size[0], im_size[1]), (250,250,250))
+        #     img_res = Image.fromarray(f_1_crf)
+        #     new_image.paste(real_img,(0,0))
+        #     new_image.paste(real_mask,(im_size[0],0))
+        #     new_image.paste(img_res,(im_size[0]*2,0))
+
+        #     # The number of test itteration
+        #     # self.test_iter +=1 
+        #     test_iter +=1 
+        #     new_image.save(os.path.join(self.args.msd_results_root, "Testing",
+        #                                             "image: " + str(test_iter) +" test.png"))
+
+        # # self.logger.experiment.log('val_loss', loss)
+        # return {'test_loss': loss}
+        # # return loss
+        pass
+    
+    # Function which is activated when the validation epoch wnds
+    def validation_epoch_end(self, outputs):
+        # # outputs = list of dictionaries
+        # avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
+        # if self.args.developer_mode:
+        #     batch = self.eval_set.sample(1)
+        #     inputs = batch["img"]
+        #     outputs = batch["mask"]
+        #     inputs = torch.from_numpy(inputs)
+        #     outputs = torch.tensor(outputs)
+        #     if len(self.args.device_ids) > 0:
+        #         inputs = inputs.cuda(self.args.device_ids[0])
+        #         outputs = outputs.cuda(self.args.device_ids[0])
+        #     _, _, _, f_1_gpu = self(inputs)
+        #     f_1 = f_1_gpu.data.cpu()
+        #     rev_size = [batch["size"][0][1], batch["size"][0][0]]
+        #     image1_size = batch["size"][0]
+        #     f_1_trans = np.array(transforms.Resize(rev_size)(to_pil(f_1[0])))
+        #     f_1_crf = crf_refine(np.array(batch["r_img"][0]), f_1_trans)
+            
+        #     new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
+        #     img_res = Image.fromarray(f_1_crf)
+        #     new_image.paste(batch["r_img"][0],(0,0))
+        #     new_image.paste(batch["r_mask"][0],(image1_size[0],0))
+        #     new_image.paste(img_res,(image1_size[0]*2,0))
+
+        #     # The number of validation itteration
+        #     self.val_iter +=1 
+        #     new_image.save(os.path.join(self.args.msd_results_root, "Training",
+        #                                             "Eval_Epoch: " + str(self.val_iter) +" Eval.png"))
+
+                
+
+        # # tensorboard_logs = {'avg_val_loss': avg_loss}
+        # # # use key 'log'
+        # # return {'val_loss': avg_loss, 'log': tensorboard_logs}
+        # self.log('avg_val_loss', avg_loss)
+        # # self.logger.experiment.log('avg_val_loss', avg_loss)
+        pass
+    
+
