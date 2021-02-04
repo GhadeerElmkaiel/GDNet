@@ -523,68 +523,73 @@ class LitGDNet(pl.LightningModule):
         input_size = outputs[0]['input_size']
         input_size = [x[0] for x in input_size]
         # avg_acc = torch.stack([x['val_acc'] for x in outputs]).mean()
-        batch = self.eval_set.sample(1)
-        inputs = batch["img"]
-        outputs = batch["mask"]
-        inputs = torch.from_numpy(inputs)
-        outputs = torch.tensor(outputs)
-        if len(self.args.device_ids) > 0:
-            inputs = inputs.cuda(self.args.device_ids[0])
-            outputs = outputs.cuda(self.args.device_ids[0])
-        f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
-        f_1 = f_1_gpu.data.cpu()
-        rev_size = [batch["size"][0][1], batch["size"][0][0]]
-        image1_size = batch["size"][0]
-        f_1_trans = np.array(transforms.Resize(rev_size)(to_pil(f_1[0])))
-        f_1_crf = crf_refine(np.array(batch["r_img"][0]), f_1_trans)
 
-        f_2 = f_2_gpu.data.cpu()
-        f_2_trans = np.array(transforms.Resize(rev_size)(to_pil(f_2[0])))
-        f_2_crf = crf_refine(np.array(batch["r_img"][0]), f_2_trans)
+        # Array of images to log
+        wandb_images = []
+        for i in range(self.args.num_log_img):
+            batch = self.eval_set.sample(1)
+            inputs = batch["img"]
+            outputs = batch["mask"]
+            inputs = torch.from_numpy(inputs)
+            outputs = torch.tensor(outputs)
+            if len(self.args.device_ids) > 0:
+                inputs = inputs.cuda(self.args.device_ids[0])
+                outputs = outputs.cuda(self.args.device_ids[0])
+            f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
+            f_1 = f_1_gpu.data.cpu()
+            rev_size = [batch["size"][0][1], batch["size"][0][0]]
+            image1_size = batch["size"][0]
+            f_1_trans = np.array(transforms.Resize(rev_size)(to_pil(f_1[0])))
+            f_1_crf = crf_refine(np.array(batch["r_img"][0]), f_1_trans)
 
-        f_3 = f_3_gpu.data.cpu()
-        f_3_trans = np.array(transforms.Resize(rev_size)(to_pil(f_3[0])))
-        f_3_crf = crf_refine(np.array(batch["r_img"][0]), f_3_trans)
-        
-        img_res = Image.fromarray(f_1_crf)
-        img_res2 = Image.fromarray(f_2_crf)
-        img_res3 = Image.fromarray(f_3_crf)
+            f_2 = f_2_gpu.data.cpu()
+            f_2_trans = np.array(transforms.Resize(rev_size)(to_pil(f_2[0])))
+            f_2_crf = crf_refine(np.array(batch["r_img"][0]), f_2_trans)
 
-        real_image = np.array(batch["r_img"][0])
-        real_mask = 255-np.array(batch["r_mask"][0])
-        img_res_1 = 255-np.array(f_1_crf)
-        img_res_2 = 255-np.array(f_2_crf)
-        img_res_3 = 255-np.array(f_3_crf)
+            f_3 = f_3_gpu.data.cpu()
+            f_3_trans = np.array(transforms.Resize(rev_size)(to_pil(f_3[0])))
+            f_3_crf = crf_refine(np.array(batch["r_img"][0]), f_3_trans)
+            
+            img_res = Image.fromarray(f_1_crf)
+            img_res2 = Image.fromarray(f_2_crf)
+            img_res3 = Image.fromarray(f_3_crf)
 
-        class_labels = {0:"glass"}
-        # mask_img = wandb.Image(real_image, masks={
-        #     "ground_truth":{
-        #         "mask_data": real_image,
-        #         "class_labels": class_labels
-        #     }
-        # })
+            real_image = np.array(batch["r_img"][0])
+            real_mask = 255-np.array(batch["r_mask"][0])
+            img_res_1 = 255-np.array(f_1_crf)
+            img_res_2 = 255-np.array(f_2_crf)
+            img_res_3 = 255-np.array(f_3_crf)
+
+            class_labels = {0:"glass"}
+            # mask_img = wandb.Image(real_image, masks={
+            #     "ground_truth":{
+            #         "mask_data": real_image,
+            #         "class_labels": class_labels
+            #     }
+            # })
 
 
-        mask_img = wandb.Image(real_image, masks={
-            "ground_truth":{
-                "mask_data": real_mask,
-                "class_labels": class_labels
-            },
-            "prediction": {
-                "mask_data": img_res_1,
-                "class_labels": class_labels
-            },
-            "l_prediction": {
-                "mask_data": img_res_2,
-                "class_labels": class_labels
-            },
-            "h_prediction": {
-                "mask_data": img_res_3,
-                "class_labels": class_labels
-            }
-        })
+            mask_img = wandb.Image(real_image, masks={
+                "ground_truth":{
+                    "mask_data": real_mask,
+                    "class_labels": class_labels
+                },
+                "prediction": {
+                    "mask_data": img_res_1,
+                    "class_labels": class_labels
+                },
+                "l_prediction": {
+                    "mask_data": img_res_2,
+                    "class_labels": class_labels
+                },
+                "h_prediction": {
+                    "mask_data": img_res_3,
+                    "class_labels": class_labels
+                }
+            })
+            wandb_images.append(mask_img)
 
-        wandb.log({"examples_"+ str(self.val_iter): [mask_img]})
+        wandb.log({"examples_"+ str(self.val_iter): wandb_images})
             
         if self.args.developer_mode:
             new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))

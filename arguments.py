@@ -20,6 +20,9 @@ def get_args():
     parser.add_argument('--wandb', action='store_false', default=True,
                         help='Use weights and biases (default: True)')
 
+    # Logging parameters
+    parser.add_argument('--num_log_img', type=int, default=5,
+                        help='The Training batch size (default: 5)')
 
     # Training parameters
     parser.add_argument('--train', action='store_true', default=False,
