@@ -15,7 +15,11 @@ import pytorch_lightning as pl
 from utils.optimizer import get_optim
 from PIL import Image
 
+import wandb
+
 from utils.loss import lovasz_hinge
+
+to_pil = transforms.ToPILImage()
 
 ###################################################################
 ############################ CBAM #################################
@@ -78,7 +82,7 @@ class ChannelGate(nn.Module):
             else:
                 channel_att_sum = channel_att_sum + channel_att_raw
 
-        scale = F.sigmoid(channel_att_sum).unsqueeze(2).unsqueeze(3).expand_as(x)
+        scale = torch.sigmoid(channel_att_sum).unsqueeze(2).unsqueeze(3).expand_as(x)
         return x * scale
 
 
@@ -109,7 +113,7 @@ class SpatialGate(nn.Module):
     def forward(self, x):
         x_compress = self.compress(x)
         x_out = self.spatial(x_compress)
-        scale = F.sigmoid(x_out)  # broadcasting
+        scale = torch.sigmoid(x_out)  # broadcasting
         return x * scale
 
 
@@ -311,7 +315,7 @@ class GDNet(nn.Module):
         # l fusion
         l_fusion = self.l_fusion_conv(l2_conv)
         h2l = self.h2l(h_fusion)
-        l_fusion = F.sigmoid(h2l) * l_fusion
+        l_fusion = torch.sigmoid(h2l) * l_fusion
 
         # final fusion
         h_up_for_final_fusion = self.h_up_for_final_fusion(h_fusion)
@@ -328,9 +332,9 @@ class GDNet(nn.Module):
         final_predict = self.final_predict(final_fusion)
 
         # rescale to original size
-        h_predict = F.upsample(h_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
-        l_predict = F.upsample(l_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
-        final_predict = F.upsample(final_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
+        h_predict = F.interpolate(h_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
+        l_predict = F.interpolate(l_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
+        final_predict = F.interpolate(final_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
 
         return torch.sigmoid(h_predict), torch.sigmoid(l_predict), torch.sigmoid(final_predict)
 
@@ -343,9 +347,11 @@ class LitGDNet(pl.LightningModule):
     def __init__(self, args, backbone_path=None):
         super(LitGDNet, self).__init__()
         # params
-
+        self.save_hyperparameters(args)
+        self.val_iter = 0
         # backbone
         self.args = args
+        self.sum_w_losses = sum(args.w_losses)
         self.testing_path = args.gdd_testing_root
         self.training_path = args.gdd_training_root
         self.eval_path = args.gdd_eval_root
@@ -423,7 +429,7 @@ class LitGDNet(pl.LightningModule):
         # l fusion
         l_fusion = self.l_fusion_conv(l2_conv)
         h2l = self.h2l(h_fusion)
-        l_fusion = F.sigmoid(h2l) * l_fusion
+        l_fusion = torch.sigmoid(h2l) * l_fusion
 
         # final fusion
         h_up_for_final_fusion = self.h_up_for_final_fusion(h_fusion)
@@ -440,9 +446,9 @@ class LitGDNet(pl.LightningModule):
         final_predict = self.final_predict(final_fusion)
 
         # rescale to original size
-        h_predict = F.upsample(h_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
-        l_predict = F.upsample(l_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
-        final_predict = F.upsample(final_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
+        h_predict = F.interpolate(h_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
+        l_predict = F.interpolate(l_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
+        final_predict = F.interpolate(final_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
 
         return torch.sigmoid(h_predict), torch.sigmoid(l_predict), torch.sigmoid(final_predict)
 
@@ -459,7 +465,8 @@ class LitGDNet(pl.LightningModule):
         loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
         loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
         loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
-        loss = loss1 + loss2 + loss3
+        loss = (loss1 + loss2 + loss3)/self.sum_w_losses
+
         self.log('train_loss', loss, on_epoch=True)
         self.train_acc(f_1_gpu, outputs)
         self.log('train_acc', self.train_acc, on_epoch=True)
@@ -472,7 +479,6 @@ class LitGDNet(pl.LightningModule):
 
     def train_dataloader(self):
         dataset = ImageFolder(self.training_path, img_transform= self.img_transform, target_transform= self.mask_transform)
-        
         loader = DataLoader(dataset, batch_size= self.args.batch_size, num_workers = 4, shuffle=self.args.shuffle_dataset)
 
         return loader
@@ -493,6 +499,8 @@ class LitGDNet(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         inputs = batch[0]
         outputs = batch[1]
+        input_size = inputs.shape
+        input_size = list(input_size)
 
         inputs.requires_grad=True
         outputs.requires_grad=True
@@ -502,17 +510,19 @@ class LitGDNet(pl.LightningModule):
         loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
         loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
         loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
-        loss = loss1 + loss2 + loss3
+        loss = (loss1 + loss2 + loss3)/self.sum_w_losses
 
-        self.log('val_loss', loss)
         self.valid_acc(f_1_gpu, outputs)
-        self.log('val_acc', self.valid_acc)
-        return {'val_loss': loss,}
+        self.log('val_acc', self.valid_acc, on_epoch=True)
+        self.log('val_loss', loss, on_epoch=True)
+        return {'val_loss': loss, 'val_acc': self.valid_acc, 'input_size': input_size}
 
     # Function which is activated when the validation epoch wnds
     def validation_epoch_end(self, outputs):
-        # outputs = list of dictionaries
         avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
+        input_size = outputs[0]['input_size']
+        input_size = [x[0] for x in input_size]
+        # avg_acc = torch.stack([x['val_acc'] for x in outputs]).mean()
         if self.args.developer_mode:
             batch = self.eval_set.sample(1)
             inputs = batch["img"]
@@ -522,15 +532,42 @@ class LitGDNet(pl.LightningModule):
             if len(self.args.device_ids) > 0:
                 inputs = inputs.cuda(self.args.device_ids[0])
                 outputs = outputs.cuda(self.args.device_ids[0])
-            _, _, f_1_gpu = self(inputs)
+            f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
             f_1 = f_1_gpu.data.cpu()
             rev_size = [batch["size"][0][1], batch["size"][0][0]]
             image1_size = batch["size"][0]
             f_1_trans = np.array(transforms.Resize(rev_size)(to_pil(f_1[0])))
             f_1_crf = crf_refine(np.array(batch["r_img"][0]), f_1_trans)
+
+            f_2 = f_2_gpu.data.cpu()
+            f_2_trans = np.array(transforms.Resize(rev_size)(to_pil(f_2[0])))
+            f_2_crf = crf_refine(np.array(batch["r_img"][0]), f_2_trans)
+
+            f_3 = f_3_gpu.data.cpu()
+            f_3_trans = np.array(transforms.Resize(rev_size)(to_pil(f_3[0])))
+            f_3_crf = crf_refine(np.array(batch["r_img"][0]), f_3_trans)
             
             new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
             img_res = Image.fromarray(f_1_crf)
+            img_res_2 = Image.fromarray(f_2_crf)
+            img_res_3 = Image.fromarray(f_3_crf)
+
+            mask_img = wandb.Image(batch["r_img"][0], mask={
+                "ground_truth":{
+                    "mask_data": batch["r_mask"][0]
+                },
+                "prediction": {
+                    "mask_data": img_res
+                },
+                "l_prediction": {
+                    "mask_data": img_res_2
+                },
+                "h_prediction": {
+                    "mask_data": img_res_3
+                }
+            },
+            caption = "Image")
+            wandb.log({"examples": [mask_img]})
             new_image.paste(batch["r_img"][0],(0,0))
             new_image.paste(batch["r_mask"][0],(image1_size[0],0))
             new_image.paste(img_res,(image1_size[0]*2,0))
@@ -540,7 +577,13 @@ class LitGDNet(pl.LightningModule):
             new_image.save(os.path.join(self.args.msd_results_root, "Training",
                                                     "Eval_Epoch: " + str(self.val_iter) +" Eval.png"))
 
-        self.log('avg_val_loss', avg_loss)
+        model_filename = f"model_{str(self.global_step).zfill(5)}.onnx"
+        if self.args.wandb:
+            wandb.save(model_filename)
+
+        # self.log('avg_val_loss', avg_loss)
+        # self.log('avg_val_acc', avg_loss)
+        # return {'val_loss': avg_loss}
         # self.logger.experiment.log('avg_val_loss', avg_loss)
 
 

@@ -30,8 +30,8 @@ def get_args():
                         help='Load pretrained model "named in snapshot"(default: False)')
     parser.add_argument('--shuffle_dataset', action='store_false', default=True,
                         help='Shuffle thee dataset while training (default: True)')
-    parser.add_argument('--batch_size', type=int, default=10,
-                        help='The Training batch size (default: 10)')
+    parser.add_argument('--batch_size', type=int, default=12,
+                        help='The Training batch size (default: 12)')
     parser.add_argument('--eval_batch_size', type=int, default=1,
                         help='The evaluation batch size (default: 1)')
     parser.add_argument('--test_batch_size', type=int, default=10,
