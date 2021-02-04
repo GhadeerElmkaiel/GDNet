@@ -523,59 +523,89 @@ class LitGDNet(pl.LightningModule):
         input_size = outputs[0]['input_size']
         input_size = [x[0] for x in input_size]
         # avg_acc = torch.stack([x['val_acc'] for x in outputs]).mean()
-        if self.args.developer_mode:
-            batch = self.eval_set.sample(1)
-            inputs = batch["img"]
-            outputs = batch["mask"]
-            inputs = torch.from_numpy(inputs)
-            outputs = torch.tensor(outputs)
-            if len(self.args.device_ids) > 0:
-                inputs = inputs.cuda(self.args.device_ids[0])
-                outputs = outputs.cuda(self.args.device_ids[0])
-            f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
-            f_1 = f_1_gpu.data.cpu()
-            rev_size = [batch["size"][0][1], batch["size"][0][0]]
-            image1_size = batch["size"][0]
-            f_1_trans = np.array(transforms.Resize(rev_size)(to_pil(f_1[0])))
-            f_1_crf = crf_refine(np.array(batch["r_img"][0]), f_1_trans)
+        batch = self.eval_set.sample(1)
+        inputs = batch["img"]
+        outputs = batch["mask"]
+        inputs = torch.from_numpy(inputs)
+        outputs = torch.tensor(outputs)
+        if len(self.args.device_ids) > 0:
+            inputs = inputs.cuda(self.args.device_ids[0])
+            outputs = outputs.cuda(self.args.device_ids[0])
+        f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
+        f_1 = f_1_gpu.data.cpu()
+        rev_size = [batch["size"][0][1], batch["size"][0][0]]
+        image1_size = batch["size"][0]
+        f_1_trans = np.array(transforms.Resize(rev_size)(to_pil(f_1[0])))
+        f_1_crf = crf_refine(np.array(batch["r_img"][0]), f_1_trans)
 
-            f_2 = f_2_gpu.data.cpu()
-            f_2_trans = np.array(transforms.Resize(rev_size)(to_pil(f_2[0])))
-            f_2_crf = crf_refine(np.array(batch["r_img"][0]), f_2_trans)
+        f_2 = f_2_gpu.data.cpu()
+        f_2_trans = np.array(transforms.Resize(rev_size)(to_pil(f_2[0])))
+        f_2_crf = crf_refine(np.array(batch["r_img"][0]), f_2_trans)
 
-            f_3 = f_3_gpu.data.cpu()
-            f_3_trans = np.array(transforms.Resize(rev_size)(to_pil(f_3[0])))
-            f_3_crf = crf_refine(np.array(batch["r_img"][0]), f_3_trans)
-            
-            new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
-            img_res = Image.fromarray(f_1_crf)
-            img_res_2 = Image.fromarray(f_2_crf)
-            img_res_3 = Image.fromarray(f_3_crf)
+        f_3 = f_3_gpu.data.cpu()
+        f_3_trans = np.array(transforms.Resize(rev_size)(to_pil(f_3[0])))
+        f_3_crf = crf_refine(np.array(batch["r_img"][0]), f_3_trans)
+        
+        img_res = Image.fromarray(f_1_crf)
+        img_res2 = Image.fromarray(f_2_crf)
+        img_res3 = Image.fromarray(f_3_crf)
 
-            mask_img = wandb.Image(batch["r_img"][0], mask={
-                "ground_truth":{
-                    "mask_data": batch["r_mask"][0]
-                },
-                "prediction": {
-                    "mask_data": img_res
-                },
-                "l_prediction": {
-                    "mask_data": img_res_2
-                },
-                "h_prediction": {
-                    "mask_data": img_res_3
-                }
+        real_image = np.array(batch["r_img"][0])
+        real_mask = 255-np.array(batch["r_mask"][0])
+        img_res_1 = 255-np.array(f_1_crf)
+        img_res_2 = 255-np.array(f_2_crf)
+        img_res_3 = 255-np.array(f_3_crf)
+
+        class_labels = {0:"glass"}
+        # mask_img = wandb.Image(real_image, masks={
+        #     "ground_truth":{
+        #         "mask_data": real_image,
+        #         "class_labels": class_labels
+        #     }
+        # })
+
+
+        mask_img = wandb.Image(real_image, masks={
+            "ground_truth":{
+                "mask_data": real_mask,
+                "class_labels": class_labels
             },
-            caption = "Image")
-            wandb.log({"examples": [mask_img]})
+            "prediction": {
+                "mask_data": img_res_1,
+                "class_labels": class_labels
+            },
+            "l_prediction": {
+                "mask_data": img_res_2,
+                "class_labels": class_labels
+            },
+            "h_prediction": {
+                "mask_data": img_res_3,
+                "class_labels": class_labels
+            }
+        })
+
+        wandb.log({"examples_"+ str(self.val_iter): [mask_img]})
+            
+        if self.args.developer_mode:
+            new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
             new_image.paste(batch["r_img"][0],(0,0))
             new_image.paste(batch["r_mask"][0],(image1_size[0],0))
             new_image.paste(img_res,(image1_size[0]*2,0))
 
             # The number of validation itteration
             self.val_iter +=1 
-            new_image.save(os.path.join(self.args.msd_results_root, "Training",
-                                                    "Eval_Epoch: " + str(self.val_iter) +" Eval.png"))
+            new_image.save(os.path.join(self.args.gdd_results_root, "Training",
+                                                    "Eval_Epoch: " + str(self.val_iter) +"_Pred.png"))
+
+            new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
+            new_image.paste(batch["r_mask"][0],(0,0))
+            new_image.paste(img_res2,(image1_size[0],0))
+            new_image.paste(img_res3,(image1_size[0]*2,0))
+
+            # The number of validation itteration
+            self.val_iter +=1 
+            new_image.save(os.path.join(self.args.gdd_results_root, "Training",
+                                                    "Eval_Epoch_" + str(self.val_iter) +"_h_l_Pred.png"))
 
         model_filename = f"model_{str(self.global_step).zfill(5)}.onnx"
         if self.args.wandb:

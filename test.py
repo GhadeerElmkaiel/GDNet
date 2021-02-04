@@ -30,13 +30,14 @@ def init_args(args):
     args.train = True
     args.batch_size = 12
     args.val_every = 2
-    args.developer_mode = False
+    args.developer_mode = True
     args.load_model = False
     args.fast_dev_run = False
     args.crf = True
     args.wandb = True
-    # args.gdd_training_root = args.root_path+"/GDNet/mini"
-    # args.epochs = 10
+    args.gdd_training_root = args.root_path+"/GDNet/mini"
+    args.gdd_eval_root = args.root_path+"/GDNet/mini_eval"
+    args.epochs = 20
 
 
 args = get_args()

@@ -13,6 +13,7 @@ import os.path
 
 import torch.utils.data as data
 from PIL import Image
+import numpy as np
 
 
 def make_dataset(root):
@@ -65,9 +66,13 @@ class ImageFolder(data.Dataset):
             mask = Image.open(gt_path)
             
             # Adding the real images to the batch for debugging if needed
-            if self.add_real_imgs:
-                batch["r_img"].append(img)
-                batch["r_mask"].append(mask)
+            #TODO
+            # Remove the add_real_imgs tage
+            # if self.add_real_imgs:
+            #     batch["r_img"].append(img)
+            #     batch["r_mask"].append(mask)
+            batch["r_img"].append(img)
+            batch["r_mask"].append(mask)
             
             # Adding the real image size to the batch
             w, h = img.size
