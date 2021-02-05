@@ -23,6 +23,8 @@ def get_args():
     # Logging parameters
     parser.add_argument('--num_log_img', type=int, default=5,
                         help='The Training batch size (default: 5)')
+    parser.add_argument('--metric_log', nargs='+', type=str, default=["iou", "recall", "precision", "FBeta", "F1"],
+                        help='The metrics to log (default ["iou", "recall", "precision", "FBeta", "F1"])')
 
     # Training parameters
     parser.add_argument('--train', action='store_true', default=False,
@@ -45,8 +47,12 @@ def get_args():
                         help = "GPU devices (default [0, 1])")
     parser.add_argument('--no_cuda', action='store_true', default=False,
                         help='disables CUDA training')
+    parser.add_argument('--loss_funcs', nargs='+', type=str, default=["lovasz", "BCE"],
+                        help='The loss function to use (default ["lovasz", "BCE"])')
     parser.add_argument('--w_losses', nargs='+', type=int, default=[1, 1, 1],
-                        help='Weights for the 3 losses (default [1, 1, 1])')
+                        help='Weights for the 3 output losses (default [1, 1, 1])')
+    parser.add_argument('--w_losses_function', nargs='+', type=int, default=[1, 1],
+                        help='Weights for the used loss funtions (default [1, 1])')
     parser.add_argument('--val_every', type=int, default=5,
                         help='Do validation epoch after how many Training epoch (default: 5)')
     parser.add_argument('--save_top', type=int, default=8,
@@ -62,6 +68,8 @@ def get_args():
                         help='Betas values for Adam optimizer(default: (0.9, 0.999))')
     parser.add_argument('--lr', type=float, default=0.001,
                         help='Learning rate for Adam optimizer (default: 0.001)')
+    parser.add_argument('--iou_threshold', type=float, default=0.5,
+                        help='The threshold for iou metric (default: 0.5)')
 
 
     # Paths and Names

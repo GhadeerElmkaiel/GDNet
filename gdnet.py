@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
-from misc import check_mkdir, crf_refine
+from misc import crf_refine
 from dataset import ImageFolder
 from backbone.resnext.resnext101_regular import ResNeXt101
 
@@ -355,9 +355,21 @@ class LitGDNet(pl.LightningModule):
         self.testing_path = args.gdd_testing_root
         self.training_path = args.gdd_training_root
         self.eval_path = args.gdd_eval_root
+
+        # Defining the metrics 
         self.train_acc = pl.metrics.Accuracy()
-        self.valid_acc = pl.metrics.Accuracy()
+        self.val_acc = pl.metrics.Accuracy()
         self.test_acc = pl.metrics.Accuracy()
+
+        self.test_F1 = pl.metrics.F1(num_classes=1)
+
+        self.train_FBeta = pl.metrics.FBeta(num_classes=1, beta=0.5)
+        self.val_FBeta = pl.metrics.FBeta(num_classes=1, beta=0.5)
+        self.test_FBeta = pl.metrics.FBeta(num_classes=1, beta=0.5)
+
+        self.train_PRCurve = pl.metrics.classification.PrecisionRecallCurve(num_classes=1, pos_label=1)
+        self.val_PRCurve = pl.metrics.classification.PrecisionRecallCurve(num_classes=1, pos_label=1)
+        self.test_PRCurve = pl.metrics.classification.PrecisionRecallCurve(num_classes=1, pos_label=1)
 
         resnext = ResNeXt101(backbone_path)
         self.layer0 = resnext.layer0
@@ -452,8 +464,50 @@ class LitGDNet(pl.LightningModule):
 
         return torch.sigmoid(h_predict), torch.sigmoid(l_predict), torch.sigmoid(final_predict)
 
-    ###############################################
+    def calc_loss(self, f_1, f_2, f_3, outputs):
+        loss = torch.tensor(0., requires_grad=True)
+        if "BCE" in self.args.loss_funcs:
+            loss_BCE_1 = F.binary_cross_entropy_with_logits(f_1, outputs)*self.args.w_losses[0]
+            loss_BCE_2 = F.binary_cross_entropy_with_logits(f_2, outputs)*self.args.w_losses[1]
+            loss_BCE_3 = F.binary_cross_entropy_with_logits(f_3, outputs)*self.args.w_losses[2]
+            loss += loss_BCE_1 + loss_BCE_2 + loss_BCE_3
+
+        if "lovasz" in self.args.loss_funcs:
+            loss1 = lovasz_hinge(f_1, outputs, per_image=False)*self.args.w_losses[0]
+            loss2 = lovasz_hinge(f_2, outputs, per_image=False)*self.args.w_losses[1]
+            loss3 = lovasz_hinge(f_3, outputs, per_image=False)*self.args.w_losses[2]
+            loss += loss1 + loss2 + loss3
+
+
+    #####################################
     # Ligtning functions
+    #####################################
+    def configure_optimizers(self):
+        optimizer = get_optim(self, self.args)
+        return optimizer
+
+    #####################################
+    # Loader functions
+    #####################################
+    def train_dataloader(self):
+        dataset = ImageFolder(self.training_path, img_transform= self.img_transform, target_transform= self.mask_transform)
+        loader = DataLoader(dataset, batch_size= self.args.batch_size, num_workers = 4, shuffle=self.args.shuffle_dataset)
+
+        return loader
+
+    def val_dataloader(self):
+        eval_dataset = ImageFolder(self.eval_path, img_transform= self.img_transform, target_transform= self.mask_transform)
+        loader = DataLoader(eval_dataset, batch_size= self.args.eval_batch_size, num_workers = 4, shuffle=False)
+        self.eval_set = eval_dataset
+        
+        return loader
+
+    def test_dataloader(self):
+        test_dataset = ImageFolder(self.testing_path, img_transform= self.img_transform, target_transform= self.mask_transform, add_real_imgs = (self.args.developer_mode and not self.args.train))
+        loader = DataLoader(test_dataset, batch_size= self.args.test_batch_size, num_workers = 4, shuffle=False)
+
+        return loader
+
     def training_step(self, batch, batch_idx):
         inputs = batch[0]
         outputs = batch[1]
@@ -467,34 +521,41 @@ class LitGDNet(pl.LightningModule):
         loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
         loss = (loss1 + loss2 + loss3)/self.sum_w_losses
 
+
+        #################################
+        # Logging metrics
+        #################################
+        thresh = self.args.iou_threshold
+        
         self.log('train_loss', loss, on_epoch=True)
+
         self.train_acc(f_1_gpu, outputs)
         self.log('train_acc', self.train_acc, on_epoch=True)
+        
+        if "F1" in self.args.metric_log:
+            train_F1 = pl.metrics.functional.f1(f_1_gpu, outputs, num_classes=1, threshold=thresh)
+            self.log('train_F1', train_F1, on_epoch=True)
+        
+        if "FBeta" in self.args.metric_log:
+            train_FBeta = pl.metrics.functional.fbeta(f_1_gpu, outputs, num_classes=1, beta=0.5, threshold=thresh)
+            self.log('train_FBeta', train_FBeta, on_epoch=True)
+        
+        if "precision" in self.args.metric_log:
+            train_avg_precision = pl.metrics.functional.average_precision(f_1_gpu, outputs, pos_label=1)
+            self.log('train_avg_precision', train_avg_precision, on_epoch=True)
+
+        if "recall" in self.args.metric_log:
+            train_recall = pl.metrics.functional.classification.recall(f_1_gpu, outputs)
+            self.log('train_recall', train_recall, on_epoch=True)
+
+        if "iou" in self.args.metric_log:
+            t = torch.tensor(thresh)
+            out_int = outputs.int()
+            res_int = (f_1_gpu>t).int()
+            train_iou = pl.metrics.functional.classification.iou(res_int, out_int)
+            self.log('train_iou', train_iou, on_epoch=True)
 
         return loss
-
-    def configure_optimizers(self):
-        optimizer = get_optim(self, self.args)
-        return optimizer
-
-    def train_dataloader(self):
-        dataset = ImageFolder(self.training_path, img_transform= self.img_transform, target_transform= self.mask_transform)
-        loader = DataLoader(dataset, batch_size= self.args.batch_size, num_workers = 4, shuffle=self.args.shuffle_dataset)
-
-        return loader
-
-    def val_dataloader(self):
-        eval_dataset = ImageFolder(self.eval_path, img_transform= self.img_transform, target_transform= self.mask_transform)
-        loader = DataLoader(eval_dataset, batch_size= self.args.eval_batch_size, num_workers = 4, shuffle=False)
-        self.eval_set = eval_dataset
-        return loader
-
-    def test_dataloader(self):
-        test_dataset = ImageFolder(self.testing_path, img_transform= self.img_transform, target_transform= self.mask_transform, add_real_imgs = (self.args.developer_mode and not self.args.train))
-        loader = DataLoader(test_dataset, batch_size= self.args.test_batch_size, num_workers = 4, shuffle=False)
-
-        return loader
-
 
     def validation_step(self, batch, batch_idx):
         inputs = batch[0]
@@ -502,8 +563,8 @@ class LitGDNet(pl.LightningModule):
         input_size = inputs.shape
         input_size = list(input_size)
 
-        inputs.requires_grad=True
-        outputs.requires_grad=True
+        inputs.requires_grad=False
+        outputs.requires_grad=False
         
         f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
 
@@ -512,10 +573,40 @@ class LitGDNet(pl.LightningModule):
         loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
         loss = (loss1 + loss2 + loss3)/self.sum_w_losses
 
-        self.valid_acc(f_1_gpu, outputs)
-        self.log('val_acc', self.valid_acc, on_epoch=True)
+        #################################
+        # Logging metrics
+        #################################
+        thresh = self.args.iou_threshold
+
         self.log('val_loss', loss, on_epoch=True)
-        return {'val_loss': loss, 'val_acc': self.valid_acc, 'input_size': input_size}
+
+        self.val_acc(f_1_gpu, outputs)
+        self.log('val_acc', self.val_acc, on_epoch=True)
+
+        if "F1" in self.args.metric_log:
+            val_F1 = pl.metrics.functional.f1(f_1_gpu, outputs, num_classes=1, threshold=thresh)
+            self.log('val_F1', val_F1, on_epoch=True)
+        
+        if "FBeta" in self.args.metric_log:
+            val_FBeta = pl.metrics.functional.fbeta(f_1_gpu, outputs, num_classes=1, beta=0.5, threshold=thresh)
+            self.log('val_FBeta', val_FBeta, on_epoch=True)
+        
+        if "precision" in self.args.metric_log:
+            val_avg_precision = pl.metrics.functional.average_precision(f_1_gpu, outputs, pos_label=1)
+            self.log('val_avg_precision', val_avg_precision, on_epoch=True)
+
+        if "recall" in self.args.metric_log:
+            val_recall = pl.metrics.functional.classification.recall(f_1_gpu, outputs)
+            self.log('val_recall', val_recall, on_epoch=True)
+
+        if "iou" in self.args.metric_log:
+            t = torch.tensor(self.args.iou_threshold)
+            out_int = outputs.int()
+            res_int = (f_1_gpu>t).int()
+            val_iou = pl.metrics.functional.classification.iou(res_int, out_int)
+            self.log('val_iou', val_iou, on_epoch=True)
+
+        return {'val_loss': loss, 'val_acc': self.val_acc, 'input_size': input_size}
 
     # Function which is activated when the validation epoch wnds
     def validation_epoch_end(self, outputs):
@@ -561,13 +652,6 @@ class LitGDNet(pl.LightningModule):
             img_res_3 = 255-np.array(f_3_crf)
 
             class_labels = {0:"glass"}
-            # mask_img = wandb.Image(real_image, masks={
-            #     "ground_truth":{
-            #         "mask_data": real_image,
-            #         "class_labels": class_labels
-            #     }
-            # })
-
 
             mask_img = wandb.Image(real_image, masks={
                 "ground_truth":{
@@ -616,59 +700,58 @@ class LitGDNet(pl.LightningModule):
         if self.args.wandb:
             wandb.save(model_filename)
 
-        # self.log('avg_val_loss', avg_loss)
-        # self.log('avg_val_acc', avg_loss)
-        # return {'val_loss': avg_loss}
-        # self.logger.experiment.log('avg_val_loss', avg_loss)
-
-
 
     def test_step(self, batch, batch_idx):
-        # global test_iter
-        # inputs = batch[0]
-        # outputs = batch[1]
-        # # inputs = torch.from_numpy(inputs)
-        # # outputs = torch.tensor(outputs)
-        # f_4_gpu, f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
+        inputs = batch[0]
+        outputs = batch[1]
+        input_size = inputs.shape
+        input_size = list(input_size)
 
-        # loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
-        # loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
-        # loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
-        # loss4 = lovasz_hinge(f_4_gpu, outputs, per_image=False)*self.args.w_losses[3]
-        # loss = loss1 + loss2 + loss3 + loss4
-        # self.log('test_loss', loss)
-        # if self.args.developer_mode:
-        #     real_img = batch[2]
-        #     real_mask = batch[3]
-        #     sq_zero  = real_img[0].squeeze()
-        #     sq_zero = sq_zero.cpu().numpy()
-        #     real_img = Image.fromarray(sq_zero)
+        inputs.requires_grad=False
+        outputs.requires_grad=False
+        
+        f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
 
-        #     sq_m  = real_mask[0].squeeze()
-        #     sq_m = sq_m.cpu().numpy()
-        #     real_mask = Image.fromarray(sq_m)
+        loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
+        loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
+        loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
+        loss = (loss1 + loss2 + loss3)/self.sum_w_losses
 
-        #     im_size = real_img.size
-        #     rev_size = [im_size[1], im_size[0]]
-        #     f_1 = f_1_gpu.data.cpu()
-        #     f_1_trans = np.array(transforms.Resize(rev_size)(to_pil(f_1[0])))
-        #     f_1_crf = crf_refine(np.array(real_img), f_1_trans)
-        #     new_image = Image.new('RGB',(3*im_size[0], im_size[1]), (250,250,250))
-        #     img_res = Image.fromarray(f_1_crf)
-        #     new_image.paste(real_img,(0,0))
-        #     new_image.paste(real_mask,(im_size[0],0))
-        #     new_image.paste(img_res,(im_size[0]*2,0))
+        #################################
+        # Logging metrics
+        #################################
+        thresh = self.args.iou_threshold
 
-        #     # The number of test itteration
-        #     # self.test_iter +=1 
-        #     test_iter +=1 
-        #     new_image.save(os.path.join(self.args.msd_results_root, "Testing",
-        #                                             "image: " + str(test_iter) +" test.png"))
+        self.log('test_loss', loss, on_epoch=True)
 
-        # # self.logger.experiment.log('val_loss', loss)
-        # return {'test_loss': loss}
-        # # return loss
-        pass
+        self.test_acc(f_1_gpu, outputs)
+        self.log('test_acc', self.test_acc, on_epoch=True)
+
+        if "F1" in self.args.metric_log:
+            test_F1 = pl.metrics.functional.f1(f_1_gpu, outputs, num_classes=1, threshold=thresh)
+            self.log('test_F1', test_F1, on_epoch=True)
+        
+        if "FBeta" in self.args.metric_log:
+            test_FBeta = pl.metrics.functional.fbeta(f_1_gpu, outputs, num_classes=1, beta=0.5, threshold=thresh)
+            self.log('test_FBeta', test_FBeta, on_epoch=True)
+
+        if "precision" in self.args.metric_log:
+            test_avg_precision = pl.metrics.functional.average_precision(f_1_gpu, outputs, pos_label=1)
+            self.log('test_avg_precision', test_avg_precision, on_epoch=True)
+
+        if "recall" in self.args.metric_log:
+            test_recall = pl.metrics.functional.classification.recall(f_1_gpu, outputs)
+            self.log('test_recall', test_recall, on_epoch=True)
+
+        if "iou" in self.args.metric_log:
+            t = torch.tensor(self.args.iou_threshold)
+            out_int = outputs.int()
+            res_int = (f_1_gpu>t).int()
+            test_iou = pl.metrics.functional.classification.iou(res_int, out_int)
+            self.log('test_iou', test_iou, on_epoch=True)
+
+        return {'test_loss': loss, 'test_acc': self.test_acc, 'input_size': input_size}
+
     
     def test_epoch_end(self, test_step_outputs):  # args are defined as part of pl API
         pass

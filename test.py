@@ -1,26 +1,16 @@
 import numpy as np
-import os
-import time
-from tqdm import tqdm
-
-from PIL import Image
 
 import torch
-from torch.autograd import Variable
 from torchvision import transforms
-from torch.utils.data import DataLoader
-from torch import optim
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning import loggers as pl_loggers
+import random as r
 
 
-from misc import check_mkdir, crf_refine
-from gdnet import GDNet, LitGDNet
-from dataset import ImageFolder
+from gdnet import LitGDNet
 from arguments import get_args
-from utils.loss import lovasz_hinge
 
 import wandb
 
@@ -35,8 +25,8 @@ def init_args(args):
     args.fast_dev_run = False
     args.crf = True
     args.wandb = True
-    # args.gdd_training_root = args.root_path+"/GDNet/mini"
-    # args.gdd_eval_root = args.root_path+"/GDNet/mini_eval"
+    args.gdd_training_root = args.root_path+"/GDNet/mini"
+    args.gdd_eval_root = args.root_path+"/GDNet/mini_eval"
     args.epochs = 100
 
 
@@ -47,10 +37,25 @@ args = get_args()
 #######################################
 # Checkpoint call back for saving the best models
 # 
+run_name = "L-"
+for l in args.loss_funcs:
+    run_name+= l+'-'
+    args.log_name = run_name
+# Adding the run number to the name of the run
+f = open("run_num.log", "r+")
+run_num = int(f.read())
+f.close()
+
+f = open("run_num.log", "w")
+f.write(str(run_num+1))
+f.close()
+run_name+= str(run_num)
+
+
 checkpoint_callback = ModelCheckpoint(
     monitor= args.monitor,
     dirpath= args.ckpt_path,
-    filename= 'GDNet-{epoch:03d}-{val_loss:.2f}',
+    filename= 'GDNet-' + args.log_name + '-{epoch:03d}-{val_loss:.2f}',
     save_top_k= args.save_top,
     mode='min',
 )
@@ -92,7 +97,7 @@ if args.cuda:
 
 # Init Weights and Biases
 if args.wandb:
-    wandb.init(project='GDNet')
+    wandb.init(project='GDNet', name= run_name)
     config = wandb.config
     model_loggers = [tb_logger, wb_logger]
 else:
