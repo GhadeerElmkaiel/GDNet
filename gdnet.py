@@ -465,19 +465,19 @@ class LitGDNet(pl.LightningModule):
         return torch.sigmoid(h_predict), torch.sigmoid(l_predict), torch.sigmoid(final_predict)
 
     def calc_loss(self, f_1, f_2, f_3, outputs):
-        loss = torch.tensor(0., requires_grad=True)
+        loss = torch.tensor(0.)
         if "BCE" in self.args.loss_funcs:
             loss_BCE_1 = F.binary_cross_entropy_with_logits(f_1, outputs)*self.args.w_losses[0]
             loss_BCE_2 = F.binary_cross_entropy_with_logits(f_2, outputs)*self.args.w_losses[1]
             loss_BCE_3 = F.binary_cross_entropy_with_logits(f_3, outputs)*self.args.w_losses[2]
-            loss += loss_BCE_1 + loss_BCE_2 + loss_BCE_3
+            loss += (loss_BCE_1 + loss_BCE_2 + loss_BCE_3)/self.sum_w_losses
 
         if "lovasz" in self.args.loss_funcs:
             loss1 = lovasz_hinge(f_1, outputs, per_image=False)*self.args.w_losses[0]
             loss2 = lovasz_hinge(f_2, outputs, per_image=False)*self.args.w_losses[1]
             loss3 = lovasz_hinge(f_3, outputs, per_image=False)*self.args.w_losses[2]
-            loss += loss1 + loss2 + loss3
-
+            loss += (loss1 + loss2 + loss3)/self.sum_w_losses
+        return loss
 
     #####################################
     # Ligtning functions
@@ -516,6 +516,7 @@ class LitGDNet(pl.LightningModule):
         outputs.requires_grad=True
         f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
 
+        # loss = self.calc_loss(f_1_gpu, f_2_gpu, f_3_gpu, outputs)
         loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
         loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
         loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
@@ -527,33 +528,33 @@ class LitGDNet(pl.LightningModule):
         #################################
         thresh = self.args.iou_threshold
         
-        self.log('train_loss', loss, on_epoch=True)
+        self.log('train_loss', loss, on_step=False, on_epoch=True)
 
         self.train_acc(f_1_gpu, outputs)
-        self.log('train_acc', self.train_acc, on_epoch=True)
+        self.log('train_acc', self.train_acc, on_step=False, on_epoch=True)
         
         if "F1" in self.args.metric_log:
             train_F1 = pl.metrics.functional.f1(f_1_gpu, outputs, num_classes=1, threshold=thresh)
-            self.log('train_F1', train_F1, on_epoch=True)
+            self.log('train_F1', train_F1, on_step=False, on_epoch=True)
         
         if "FBeta" in self.args.metric_log:
             train_FBeta = pl.metrics.functional.fbeta(f_1_gpu, outputs, num_classes=1, beta=0.5, threshold=thresh)
-            self.log('train_FBeta', train_FBeta, on_epoch=True)
+            self.log('train_FBeta', train_FBeta, on_step=False, on_epoch=True)
         
         if "precision" in self.args.metric_log:
             train_avg_precision = pl.metrics.functional.average_precision(f_1_gpu, outputs, pos_label=1)
-            self.log('train_avg_precision', train_avg_precision, on_epoch=True)
+            self.log('train_avg_precision', train_avg_precision, on_step=False, on_epoch=True)
 
         if "recall" in self.args.metric_log:
             train_recall = pl.metrics.functional.classification.recall(f_1_gpu, outputs)
-            self.log('train_recall', train_recall, on_epoch=True)
+            self.log('train_recall', train_recall, on_step=False, on_epoch=True)
 
         if "iou" in self.args.metric_log:
             t = torch.tensor(thresh)
             out_int = outputs.int()
             res_int = (f_1_gpu>t).int()
             train_iou = pl.metrics.functional.classification.iou(res_int, out_int)
-            self.log('train_iou', train_iou, on_epoch=True)
+            self.log('train_iou', train_iou, on_step=False, on_epoch=True)
 
         return loss
 
@@ -568,6 +569,7 @@ class LitGDNet(pl.LightningModule):
         
         f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
 
+        # loss = self.calc_loss(f_1_gpu, f_2_gpu, f_3_gpu, outputs)
         loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
         loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
         loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
@@ -672,29 +674,28 @@ class LitGDNet(pl.LightningModule):
                 }
             })
             wandb_images.append(mask_img)
-
-        wandb.log({"examples_"+ str(self.val_iter): wandb_images})
             
-        if self.args.developer_mode:
-            new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
-            new_image.paste(batch["r_img"][0],(0,0))
-            new_image.paste(batch["r_mask"][0],(image1_size[0],0))
-            new_image.paste(img_res,(image1_size[0]*2,0))
+            if self.args.developer_mode:
 
-            # The number of validation itteration
-            self.val_iter +=1 
-            new_image.save(os.path.join(self.args.gdd_results_root, "Training",
-                                                    "Eval_Epoch: " + str(self.val_iter) +"_Pred.png"))
+                new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
+                new_image.paste(batch["r_img"][0],(0,0))
+                new_image.paste(batch["r_mask"][0],(image1_size[0],0))
+                new_image.paste(img_res,(image1_size[0]*2,0))
 
-            new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
-            new_image.paste(batch["r_mask"][0],(0,0))
-            new_image.paste(img_res2,(image1_size[0],0))
-            new_image.paste(img_res3,(image1_size[0]*2,0))
+                new_image.save(os.path.join(self.args.gdd_results_root, "Training", self.args.log_name,
+                                                        "Eval_Epoch: " + str(self.val_iter) +"_"+ str(i) +"_Pred.png"))
 
-            # The number of validation itteration
-            self.val_iter +=1 
-            new_image.save(os.path.join(self.args.gdd_results_root, "Training",
-                                                    "Eval_Epoch_" + str(self.val_iter) +"_h_l_Pred.png"))
+                new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
+                new_image.paste(batch["r_mask"][0],(0,0))
+                new_image.paste(img_res2,(image1_size[0],0))
+                new_image.paste(img_res3,(image1_size[0]*2,0))
+
+                new_image.save(os.path.join(self.args.gdd_results_root, "Training", self.args.log_name,
+                                                        "Eval_Epoch: " + str(self.val_iter) +"_"+ str(i) +"_h_l_Pred.png"))
+
+        # The number of validation itteration
+        self.val_iter +=1 
+        wandb.log({"examples_"+ str(self.val_iter): wandb_images})
 
         model_filename = f"model_{str(self.global_step).zfill(5)}.onnx"
         if self.args.wandb:

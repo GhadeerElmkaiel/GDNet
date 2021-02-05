@@ -1,4 +1,5 @@
 import numpy as np
+import os
 
 import torch
 from torchvision import transforms
@@ -25,14 +26,15 @@ def init_args(args):
     args.fast_dev_run = False
     args.crf = True
     args.wandb = True
-    args.gdd_training_root = args.root_path+"/GDNet/mini"
-    args.gdd_eval_root = args.root_path+"/GDNet/mini_eval"
-    args.epochs = 100
+    # args.gdd_training_root = args.root_path+"/GDNet/mini"
+    # args.gdd_eval_root = args.root_path+"/GDNet/mini_eval"
+    # args.epochs = 100
 
 
 args = get_args()
 
-
+# change the argumnets for testing
+init_args(args)
 
 #######################################
 # Checkpoint call back for saving the best models
@@ -40,7 +42,6 @@ args = get_args()
 run_name = "L-"
 for l in args.loss_funcs:
     run_name+= l+'-'
-    args.log_name = run_name
 # Adding the run number to the name of the run
 f = open("run_num.log", "r+")
 run_num = int(f.read())
@@ -50,11 +51,20 @@ f = open("run_num.log", "w")
 f.write(str(run_num+1))
 f.close()
 run_name+= str(run_num)
+args.log_name = run_name
 
+# Creating folder for saving the images:
+if args.developer_mode:
+    folder_path = os.path.join(args.gdd_results_root, "Training",run_name)
+    os.makedirs(folder_path)
+    
+ckpt_path = os.path.join(args.ckpt_path,run_name)
+os.makedirs(ckpt_path)
+args.ckpt_path = ckpt_path
 
 checkpoint_callback = ModelCheckpoint(
     monitor= args.monitor,
-    dirpath= args.ckpt_path,
+    dirpath= ckpt_path,
     filename= 'GDNet-' + args.log_name + '-{epoch:03d}-{val_loss:.2f}',
     save_top_k= args.save_top,
     mode='min',
@@ -64,8 +74,6 @@ tb_logger = pl_loggers.TensorBoardLogger(save_dir = args.log_path,
                                         name = args.log_name)
 wb_logger = pl_loggers.WandbLogger(project = args.log_name)
 
-# change the argumnets for testing
-init_args(args)
 
 ###############################
 # Defining the transoformations
@@ -107,7 +115,6 @@ else:
 def main():
 
     net = LitGDNet(args)
-    # net = net.load_from_checkpoint(args.root_path + args.ckpt_path + "/MirrorNet-epoch=16-val_loss=3.99.ckpt")
     if args.load_model:
         net = LitGDNet.load_from_checkpoint(args.ckpt_path+args.ckpt_name, args=args)
         print('Loading {} checkpoint.'.format(args.ckpt_path + args.ckpt_name))
@@ -128,7 +135,6 @@ def main():
                         callbacks = [checkpoint_callback],
                         check_val_every_n_epoch = args.val_every,
                         logger = model_loggers)
-                        # resume_from_checkpoint = args.root_path + args.ckpt_path + "/MirrorNet-epoch=16-val_loss=3.99.ckpt")
     
     if args.wandb:
         wandb.watch(net)
