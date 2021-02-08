@@ -54,8 +54,8 @@ class ImageFolder(data.Dataset):
             img = self.img_transform(img)
         if self.target_transform is not None:
             target = self.target_transform(target)
-        print("Image:  ",img.size())
-        print("Target: ",target.size())
+        # print("Image:  ",img.size())
+        # print("Target: ",target.size())
         return img, target
 
     def __len__(self):
@@ -75,7 +75,7 @@ class ImageFolder(data.Dataset):
 
             img_path, gt_path = self.imgs[i]
             img = Image.open(img_path).convert('RGB')
-            mask = Image.open(gt_path)
+            mask = Image.open(gt_path).convert('L')
             
             # Adding the real images to the batch for debugging if needed
             #TODO
