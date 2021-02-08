@@ -25,15 +25,19 @@ def init_args(args):
     args.load_model = True
     args.fast_dev_run = False
     args.crf = True
-    args.wandb = False
+    args.wandb = True
     args.ckpt_path = "ckpt/"
     args.infer = False
     args.gdd_training_root.append(args.Sber_dataset_path)
+    # args.gdd_training_root = args.Sber_dataset_path
+    args.debugging = True
+
+    if args.debugging:
+        args.wandb = False
+
     # args.gdd_training_root = args.root_path+"/GDNet/mini"
     # args.gdd_eval_root = args.root_path+"/GDNet/mini_eval"
     # args.epochs = 100
-
-
 args = get_args()
 
 # change the argumnets for testing
@@ -75,7 +79,7 @@ if args.developer_mode:
             args.gdd_results_root =  os.path.join(args.gdd_results_root, "Inference")
 
 # If training create folder for saving checkpoints
-if args.train:
+if args.train and not args.debugging:
     this_ckpt_path = os.path.join(args.ckpt_path,run_name)
     os.makedirs(this_ckpt_path)
     # args.ckpt_path = ckpt_path

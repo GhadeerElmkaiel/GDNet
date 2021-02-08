@@ -27,7 +27,7 @@ def make_dataset(root):
             img_list = []
             res = []
             for root_ in root:
-                img_list += [os.path.splitext(f)[0] for f in os.listdir(os.path.join(root_, 'image')) if f.endswith('.jpg')]
+                img_list = [os.path.splitext(f)[0] for f in os.listdir(os.path.join(root_, 'image')) if f.endswith('.jpg')]
                 res += [
                 (os.path.join(root_, 'image', img_name + '.jpg'), os.path.join(root_, 'mask', img_name + '.png'))
                 for img_name in img_list]
@@ -47,14 +47,15 @@ class ImageFolder(data.Dataset):
     def __getitem__(self, index):
         img_path, gt_path = self.imgs[index]
         img = Image.open(img_path).convert('RGB')
-        target = Image.open(gt_path)
+        target = Image.open(gt_path).convert('L')
         if self.joint_transform is not None:
             img, target = self.joint_transform(img, target)
         if self.img_transform is not None:
             img = self.img_transform(img)
         if self.target_transform is not None:
             target = self.target_transform(target)
-
+        print("Image:  ",img.size())
+        print("Target: ",target.size())
         return img, target
 
     def __len__(self):
