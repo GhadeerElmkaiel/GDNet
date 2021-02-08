@@ -17,10 +17,21 @@ import numpy as np
 
 
 def make_dataset(root):
-    img_list = [os.path.splitext(f)[0] for f in os.listdir(os.path.join(root, 'image')) if f.endswith('.jpg')]
-    return [
-        (os.path.join(root, 'image', img_name + '.jpg'), os.path.join(root, 'mask', img_name + '.png'))
-        for img_name in img_list]
+    if isinstance(root, str):
+        img_list = [os.path.splitext(f)[0] for f in os.listdir(os.path.join(root, 'image')) if f.endswith('.jpg')]
+        return [
+            (os.path.join(root, 'image', img_name + '.jpg'), os.path.join(root, 'mask', img_name + '.png'))
+            for img_name in img_list]
+    else:
+        if isinstance(root, list):
+            img_list = []
+            res = []
+            for root_ in root:
+                img_list += [os.path.splitext(f)[0] for f in os.listdir(os.path.join(root_, 'image')) if f.endswith('.jpg')]
+                res += [
+                (os.path.join(root_, 'image', img_name + '.jpg'), os.path.join(root_, 'mask', img_name + '.png'))
+                for img_name in img_list]
+            return res
 
 
 class ImageFolder(data.Dataset):

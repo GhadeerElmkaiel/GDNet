@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
-from misc import crf_refine
+from misc import crf_refine, check_mkdir
 from dataset import ImageFolder, TestImageFolder
 from backbone.resnext.resnext101_regular import ResNeXt101
 
@@ -682,7 +682,7 @@ class LitGDNet(pl.LightningModule):
                 new_image.paste(batch["r_mask"][0],(image1_size[0],0))
                 new_image.paste(img_res,(image1_size[0]*2,0))
 
-                new_image.save(os.path.join(self.args.gdd_results_root, "Training", self.args.log_name,
+                new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name,
                                                         "Eval_Epoch: " + str(self.val_iter) +"_"+ str(i) +"_Pred.png"))
 
                 new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
@@ -690,15 +690,15 @@ class LitGDNet(pl.LightningModule):
                 new_image.paste(img_res2,(image1_size[0],0))
                 new_image.paste(img_res3,(image1_size[0]*2,0))
 
-                new_image.save(os.path.join(self.args.gdd_results_root, "Training", self.args.log_name,
+                new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name,
                                                         "Eval_Epoch: " + str(self.val_iter) +"_"+ str(i) +"_h_l_Pred.png"))
 
         # The number of validation itteration
         self.val_iter +=1 
-        wandb.log({"examples_"+ str(self.val_iter): wandb_images})
 
         model_filename = f"model_{str(self.global_step).zfill(5)}.onnx"
         if self.args.wandb:
+            wandb.log({"examples_"+ str(self.val_iter): wandb_images})
             wandb.save(model_filename)
 
 
@@ -764,14 +764,60 @@ class LitGDNet(pl.LightningModule):
                 new_image.paste(Image.fromarray(real_outputs[i]),(img_size[0],0))
                 new_image.paste(img_res,(img_size[0]*2,0))
 
-                new_image.save(os.path.join(self.args.gdd_results_root, "Testing", self.args.log_name,
+                new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name,
                                                         "Test_Epoch: " + str(self.args.iter) +"_Pred.png"))
                 self.args.iter = self.args.iter + 1 
 
         return {'test_loss': loss, 'test_acc': self.test_acc, 'input_size': input_size}
 
 
-
     
     def test_epoch_end(self, test_step_outputs):  # args are defined as part of pl API
         pass
+
+    def infer(self, imag_path):
+        img_list = [img_name for img_name in os.listdir(imag_path)]
+
+        for idx, img_name in enumerate(img_list):
+            print('predicting for {}: {:>4d} / {}'.format("GDNet", idx + 1, len(img_list)))
+            # check_mkdir(os.path.join(self.args.gdd_results_root, '%s_%s' % (exp_name, args['snapshot'])))
+            img = Image.open(os.path.join(self.args.infer_path, img_name))
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            w, h = img.size
+            # img_var = torch.tensor(self.img_transform(img).unsqueeze(0)).cuda(self.args.device_ids[0])
+            img_var = torch.tensor(self.img_transform(img).unsqueeze(0))
+            f1, f2, f3 = self(img_var)
+            f1 = f1.data.squeeze(0).cpu()
+            f2 = f2.data.squeeze(0).cpu()
+            f3 = f3.data.squeeze(0).cpu()
+            f1 = np.array(transforms.Resize((h, w))(to_pil(f1)))
+            f2 = np.array(transforms.Resize((h, w))(to_pil(f2)))
+            f3 = np.array(transforms.Resize((h, w))(to_pil(f3)))
+            #################################### My Addition ####################################
+            image1_size = img.size
+            new_image = Image.new('RGB',(2*image1_size[0], image1_size[1]), (250,250,250))
+            img_res = Image.fromarray(f3)
+            new_image.paste(img,(0,0))
+            new_image.paste(img_res,(image1_size[0],0))
+            new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name, img_name[:-4] + "_both" +".png"))
+            #####################################################################################
+
+            if self.args.crf:
+                f1 = crf_refine(np.array(img.convert('RGB')), f1)
+                f2 = crf_refine(np.array(img.convert('RGB')), f2)
+                f3 = crf_refine(np.array(img.convert('RGB')), f3)
+
+            ######################################### Old ############################################
+            # Image.fromarray(f1).save(os.path.join(ckpt_path, exp_name, '%s_%s' % (exp_name, args['snapshot']),
+            #                                       img_name[:-4] + "_h.png"))
+            # Image.fromarray(f2).save(os.path.join(ckpt_path, exp_name, '%s_%s' % (exp_name, args['snapshot']),
+            #                                       img_name[:-4] + "_l.png"))
+            # Image.fromarray(f3).save(os.path.join(gdd_results_root, '%s_%s' % (exp_name, args['snapshot']),
+            #                                       img_name[:-4] + ".png"))
+
+
+            # Image.fromarray(f1).save(os.path.join(self.args.gdd_results_root, self.args.log_name, img_name[:-4] + "_h.png"))
+            # Image.fromarray(f2).save(os.path.join(self.args.gdd_results_root, self.args.log_name, img_name[:-4] + "_l.png"))
+            # Image.fromarray(f3).save(os.path.join(self.args.gdd_results_root, self.args.log_name, img_name[:-4] + ".png"))
+

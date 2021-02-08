@@ -18,15 +18,17 @@ import wandb
 #######################################
 # Initializing the arguments for testing
 def init_args(args):
-    args.train = False
+    args.train = True
     args.batch_size = 12
     args.val_every = 2
-    args.developer_mode = True
+    args.developer_mode = False
     args.load_model = True
     args.fast_dev_run = False
     args.crf = True
-    args.wandb = True
-    args.ckpt_path = "ckpt/L-lovasz-42/"
+    args.wandb = False
+    args.ckpt_path = "ckpt/"
+    args.infer = False
+    args.gdd_training_root.append(args.Sber_dataset_path)
     # args.gdd_training_root = args.root_path+"/GDNet/mini"
     # args.gdd_eval_root = args.root_path+"/GDNet/mini_eval"
     # args.epochs = 100
@@ -61,19 +63,26 @@ if args.developer_mode:
     if args.train:
         folder_path = os.path.join(args.gdd_results_root, "Training",run_name)
         os.makedirs(folder_path)
+        args.gdd_results_root =  os.path.join(args.gdd_results_root, "Training")
     else:
-        folder_path = os.path.join(args.gdd_results_root, "Testing",run_name)
-        os.makedirs(folder_path)
+        if not args.infer:
+            folder_path = os.path.join(args.gdd_results_root, "Testing",run_name)
+            os.makedirs(folder_path)
+            args.gdd_results_root =  os.path.join(args.gdd_results_root, "Testing")
+        else:
+            folder_path = os.path.join(args.gdd_results_root, "Inference",run_name)
+            os.makedirs(folder_path)
+            args.gdd_results_root =  os.path.join(args.gdd_results_root, "Inference")
 
 # If training create folder for saving checkpoints
 if args.train:
-    ckpt_path = os.path.join(args.ckpt_path,run_name)
-    os.makedirs(ckpt_path)
-    args.ckpt_path = ckpt_path
+    this_ckpt_path = os.path.join(args.ckpt_path,run_name)
+    os.makedirs(this_ckpt_path)
+    # args.ckpt_path = ckpt_path
 
 checkpoint_callback = ModelCheckpoint(
     monitor= args.monitor,
-    dirpath= args.ckpt_path,
+    dirpath= os.path.join(args.ckpt_path,run_name),
     filename= 'GDNet-' + args.log_name + '-{epoch:03d}-{val_loss:.2f}',
     save_top_k= args.save_top,
     mode='min',
@@ -152,16 +161,19 @@ def main():
         print("Training")
 
         trainer.fit(net)
-        final_epoch_model_path = args.ckpt_path + "-final-epoch.ckpt"
+        final_epoch_model_path = os.path.join(args.ckpt_path,run_name,"-final-epoch.ckpt") 
         trainer.save_checkpoint(final_epoch_model_path)
 
         print("Done")
 
     else:
         print("Testing")
-        # trainer.test(model = net,
-        #             ckpt_path = args.ckpt_path+args.ckpt_name)
-        trainer.test(model = net)
+        
+        # Testing step
+        if not args.infer:
+            trainer.test(model = net)
+        else:
+            net.infer(args.infer_path)
 
 
 if __name__ == "__main__":

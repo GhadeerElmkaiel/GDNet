@@ -29,6 +29,8 @@ def get_args():
     # Training parameters
     parser.add_argument('--train', action='store_true', default=False,
                         help='Train the model (default: False)')
+    parser.add_argument('--infer', action='store_true', default=False,
+                        help='Use the model for inference (default: False)')
     parser.add_argument('--fast_dev_run', action='store_true', default=False,
                         help='Do fast eval run to test if every thing is Okay (default: False)')
     parser.add_argument('--load_model', action='store_true', default=False,
@@ -76,23 +78,29 @@ def get_args():
     parser.add_argument('--root_path', type=str, default=root_path,
                         help='the root path (default: {})'.format(root_path))
     parser.add_argument('--ckpt_path', type=str, default="ckpt/",
-                        help='Path to the checkpoints (default: ckpt/)')
-    parser.add_argument('--ckpt_name', type=str, default="GDNet-L-lovasz-42-epoch=141-val_loss=0.25.ckpt",
-                        help='Name of the checkpoint to load (default: GDNet-L-lovasz-42-epoch=141-val_loss=0.25.ckpt)')
+                        help='Path to place where to save the checkpoints (default: ckpt/)')
+    parser.add_argument('--ckpt_name', type=str, default="L-lovasz-42/GDNet-L-lovasz-42-epoch=141-val_loss=0.25.ckpt",
+                        help='Name of the checkpoint to load (default: L-lovasz-42/GDNet-L-lovasz-42-epoch=141-val_loss=0.25.ckpt)')
     parser.add_argument('--exp_name', type=str, default="MirrorNet",
                         help='Name of the folder of the snapshot to load (default: GDNet)')
     parser.add_argument('--backbone_path', type=str, default=None,
                         help='Path to the backbone (default:None')
     # parser.add_argument('--backbone_path', type=str, default=root_path+"/backbone/resnext/resnext_101_32x4d.pth",
     #                     help='Path to the backbone (default:'+ root_path+'/backbone/resnext/resnext_101_32x4d.pth')
-    parser.add_argument('--gdd_training_root', type=str, default=root_path+"/GDNet/train",
-                        help='Path to the training data (default: '+root_path+'/GDNet/train')
+    parser.add_argument('--gdd_training_root', nargs='+', type=str, default=[root_path+"/GDNet/train"],
+                        help='List of paths to the training data (default: ['+root_path+'/GDNet/train]')
     parser.add_argument('--gdd_eval_root', type=str, default=root_path+"/GDNet/eval",
                         help='Path to the evaluation data (default: '+root_path+'/GDNet/eval')
     parser.add_argument('--gdd_testing_root', type=str, default=root_path+"/GDNet/test",
                         help='Path to the testing data (default: '+root_path+'/GDNet/test')
     parser.add_argument('--gdd_results_root', type=str, default=root_path+"/GDNet/results",
-                        help='Path results path (default: '+root_path+'/GDNet/results')
+                        help='Path to the results (default: '+root_path+'/GDNet/results')
+    parser.add_argument('--GD_dataset_path', type=str, default="GDNet/train",
+                        help='Path to GD default dataset (default: GDNet/train')
+    parser.add_argument('--Sber_dataset_path', type=str, default="sber_ds",
+                        help='Path to Sber default dataset  (default: GDNet/train')
+    parser.add_argument('--infer_path', type=str, default=root_path+"/test_images",
+                        help='Path to the inference images (default: '+root_path+'/test_images')
     parser.add_argument('--log_path', type=str, default="logs/",
                         help='Path to the logs folder (default: logs/')
     parser.add_argument('--log_name', type=str, default="lightning_logs",
@@ -101,8 +109,6 @@ def get_args():
                         help='Starting value for iterator to use (default: 1)')
 
                         
-
-
 
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
