@@ -18,14 +18,15 @@ import wandb
 #######################################
 # Initializing the arguments for testing
 def init_args(args):
-    args.train = True
+    args.train = False
     args.batch_size = 12
     args.val_every = 2
     args.developer_mode = True
-    args.load_model = False
+    args.load_model = True
     args.fast_dev_run = False
     args.crf = True
     args.wandb = True
+    args.ckpt_path = "ckpt/L-lovasz-42/"
     # args.gdd_training_root = args.root_path+"/GDNet/mini"
     # args.gdd_eval_root = args.root_path+"/GDNet/mini_eval"
     # args.epochs = 100
@@ -51,20 +52,28 @@ f = open("run_num.log", "w")
 f.write(str(run_num+1))
 f.close()
 run_name+= str(run_num)
+if not args.train:
+    run_name = "test-" + run_name
 args.log_name = run_name
 
 # Creating folder for saving the images:
 if args.developer_mode:
-    folder_path = os.path.join(args.gdd_results_root, "Training",run_name)
-    os.makedirs(folder_path)
-    
-ckpt_path = os.path.join(args.ckpt_path,run_name)
-os.makedirs(ckpt_path)
-args.ckpt_path = ckpt_path
+    if args.train:
+        folder_path = os.path.join(args.gdd_results_root, "Training",run_name)
+        os.makedirs(folder_path)
+    else:
+        folder_path = os.path.join(args.gdd_results_root, "Testing",run_name)
+        os.makedirs(folder_path)
+
+# If training create folder for saving checkpoints
+if args.train:
+    ckpt_path = os.path.join(args.ckpt_path,run_name)
+    os.makedirs(ckpt_path)
+    args.ckpt_path = ckpt_path
 
 checkpoint_callback = ModelCheckpoint(
     monitor= args.monitor,
-    dirpath= ckpt_path,
+    dirpath= args.ckpt_path,
     filename= 'GDNet-' + args.log_name + '-{epoch:03d}-{val_loss:.2f}',
     save_top_k= args.save_top,
     mode='min',
@@ -143,7 +152,7 @@ def main():
         print("Training")
 
         trainer.fit(net)
-        final_epoch_model_path = args.ckpt_path + "final_epoch.ckpt"
+        final_epoch_model_path = args.ckpt_path + "-final-epoch.ckpt"
         trainer.save_checkpoint(final_epoch_model_path)
 
         print("Done")

@@ -83,4 +83,33 @@ class ImageFolder(data.Dataset):
         return batch
 
 
+class TestImageFolder(data.Dataset):
+    def __init__(self, root, joint_transform=None, img_transform=None, target_transform=None, add_real_imgs=False):
+        self.root = root
+        self.imgs = make_dataset(root)
+        self.joint_transform = joint_transform
+        self.img_transform = img_transform
+        self.target_transform = target_transform
+        self.len = len(self.imgs)
+        self.add_real_imgs = add_real_imgs
 
+    def __getitem__(self, index):
+        img_path, gt_path = self.imgs[index]
+        real_img = Image.open(img_path).convert('RGB')
+        w, h = real_img.size
+        size = np.array([w, h])
+        img = Image.open(img_path).convert('RGB')
+
+        real_target = Image.open(gt_path)
+        target = Image.open(gt_path)
+        if self.joint_transform is not None:
+            img, target = self.joint_transform(img, target)
+        if self.img_transform is not None:
+            img = self.img_transform(img)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return img, target, np.array(real_img), np.array(real_target), size
+
+    def __len__(self):
+        return self.len

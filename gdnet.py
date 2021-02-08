@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 from misc import crf_refine
-from dataset import ImageFolder
+from dataset import ImageFolder, TestImageFolder
 from backbone.resnext.resnext101_regular import ResNeXt101
 
 import pytorch_lightning as pl
@@ -503,7 +503,7 @@ class LitGDNet(pl.LightningModule):
         return loader
 
     def test_dataloader(self):
-        test_dataset = ImageFolder(self.testing_path, img_transform= self.img_transform, target_transform= self.mask_transform, add_real_imgs = (self.args.developer_mode and not self.args.train))
+        test_dataset = TestImageFolder(self.testing_path, img_transform= self.img_transform, target_transform= self.mask_transform, add_real_imgs = (self.args.developer_mode and not self.args.train))
         loader = DataLoader(test_dataset, batch_size= self.args.test_batch_size, num_workers = 4, shuffle=False)
 
         return loader
@@ -705,6 +705,9 @@ class LitGDNet(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         inputs = batch[0]
         outputs = batch[1]
+        real_inputs = batch[2].cpu().detach().numpy()
+        real_outputs = batch[3].cpu().detach().numpy()
+        sizes = batch[4].cpu().detach().numpy()
         input_size = inputs.shape
         input_size = list(input_size)
 
@@ -725,8 +728,8 @@ class LitGDNet(pl.LightningModule):
 
         self.log('test_loss', loss, on_epoch=True)
 
-        self.test_acc(f_1_gpu, outputs)
-        self.log('test_acc', self.test_acc, on_epoch=True)
+        # self.test_acc(f_1_gpu, outputs)
+        # self.log('test_acc', self.test_acc, on_epoch=True)
 
         if "F1" in self.args.metric_log:
             test_F1 = pl.metrics.functional.f1(f_1_gpu, outputs, num_classes=1, threshold=thresh)
@@ -740,18 +743,34 @@ class LitGDNet(pl.LightningModule):
             test_avg_precision = pl.metrics.functional.average_precision(f_1_gpu, outputs, pos_label=1)
             self.log('test_avg_precision', test_avg_precision, on_epoch=True)
 
-        if "recall" in self.args.metric_log:
-            test_recall = pl.metrics.functional.classification.recall(f_1_gpu, outputs)
-            self.log('test_recall', test_recall, on_epoch=True)
-
-        if "iou" in self.args.metric_log:
+        if self.args.developer_mode:
             t = torch.tensor(self.args.iou_threshold)
             out_int = outputs.int()
             res_int = (f_1_gpu>t).int()
             test_iou = pl.metrics.functional.classification.iou(res_int, out_int)
             self.log('test_iou', test_iou, on_epoch=True)
 
+        if self.args.developer_mode:
+            l = len(inputs)
+            for i in range(l):
+                img_size = sizes[i]
+                rev_size = [img_size[1], img_size[0]]
+                f_1 = f_1_gpu.data.cpu()
+                f_1_trans = np.array(transforms.Resize(rev_size)(to_pil(f_1[0])))
+                f_1_crf = crf_refine(real_inputs[i], f_1_trans)
+                img_res = Image.fromarray(f_1_crf)
+                new_image = Image.new('RGB',(3*img_size[0], img_size[1]), (250,250,250))
+                new_image.paste(Image.fromarray(real_inputs[i]),(0,0))
+                new_image.paste(Image.fromarray(real_outputs[i]),(img_size[0],0))
+                new_image.paste(img_res,(img_size[0]*2,0))
+
+                new_image.save(os.path.join(self.args.gdd_results_root, "Testing", self.args.log_name,
+                                                        "Test_Epoch: " + str(self.args.iter) +"_Pred.png"))
+                self.args.iter = self.args.iter + 1 
+
         return {'test_loss': loss, 'test_acc': self.test_acc, 'input_size': input_size}
+
+
 
     
     def test_epoch_end(self, test_step_outputs):  # args are defined as part of pl API

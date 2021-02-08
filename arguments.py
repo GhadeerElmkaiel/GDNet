@@ -39,8 +39,8 @@ def get_args():
                         help='The Training batch size (default: 12)')
     parser.add_argument('--eval_batch_size', type=int, default=1,
                         help='The evaluation batch size (default: 1)')
-    parser.add_argument('--test_batch_size', type=int, default=10,
-                        help='The Testing batch size (default: 10)')
+    parser.add_argument('--test_batch_size', type=int, default=1,
+                        help='The Testing batch size (default: 1)')
     parser.add_argument('--epochs', type=int, default=200,
                         help='The number of epoches (default: 500)')
     parser.add_argument('--device_ids', nargs='+', type=int, default=[0, 1],
@@ -77,6 +77,8 @@ def get_args():
                         help='the root path (default: {})'.format(root_path))
     parser.add_argument('--ckpt_path', type=str, default="ckpt/",
                         help='Path to the checkpoints (default: ckpt/)')
+    parser.add_argument('--ckpt_name', type=str, default="GDNet-L-lovasz-42-epoch=141-val_loss=0.25.ckpt",
+                        help='Name of the checkpoint to load (default: GDNet-L-lovasz-42-epoch=141-val_loss=0.25.ckpt)')
     parser.add_argument('--exp_name', type=str, default="MirrorNet",
                         help='Name of the folder of the snapshot to load (default: GDNet)')
     parser.add_argument('--backbone_path', type=str, default=None,
@@ -95,8 +97,12 @@ def get_args():
                         help='Path to the logs folder (default: logs/')
     parser.add_argument('--log_name', type=str, default="lightning_logs",
                         help='The name of TB logger (default: lightning_logs')
+    parser.add_argument('--iter', type=int, default=1,
+                        help='Starting value for iterator to use (default: 1)')
 
                         
+
+
 
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
