@@ -29,6 +29,8 @@ def get_args():
     # Training parameters
     parser.add_argument('--train', action='store_true', default=False,
                         help='Train the model (default: False)')
+    parser.add_argument('--mode', type=str, default="train",
+                        help='The mode of the model (train, test, infer) (default: train)')
     parser.add_argument('--infer', action='store_true', default=False,
                         help='Use the model for inference (default: False)')
     parser.add_argument('--fast_dev_run', action='store_true', default=False,
@@ -49,6 +51,10 @@ def get_args():
                         help = "GPU devices (default [0, 1])")
     parser.add_argument('--no_cuda', action='store_true', default=False,
                         help='disables CUDA training')
+    parser.add_argument('--freeze_resnet', action='store_true', default=False,
+                        help='Freeze the resnet101 backbone')
+    parser.add_argument('--freeze_LCFI', action='store_true', default=False,
+                        help='Freeze the LCFI modules')
     parser.add_argument('--loss_funcs', nargs='+', type=str, default=["lovasz"],
                         help='The loss function to use (default ["lovasz"])')
     parser.add_argument('--w_losses', nargs='+', type=float, default=[1, 1, 1],

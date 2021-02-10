@@ -295,16 +295,40 @@ class GDNet(nn.Module):
 
     def forward(self, x):
         # x: [batch_size, channel=3, h, w]
-        layer0 = self.layer0(x)  # [-1, 64, h/2, w/2]
-        layer1 = self.layer1(layer0)  # [-1, 256, h/4, w/4]
-        layer2 = self.layer2(layer1)  # [-1, 512, h/8, w/8]
-        layer3 = self.layer3(layer2)  # [-1, 1024, h/16, w/16]
-        layer4 = self.layer4(layer3)  # [-1, 2048, h/32, w/32]
+        if self.args.freeze_resnet:
+            self.layer0.eval()
+            self.layer1.eval()
+            self.layer2.eval()
+            self.layer3.eval()
+            self.layer4.eval()
+            with torch.no_grad():
+                layer0 = self.layer0(x)  # [-1, 64, h/2, w/2]
+                layer1 = self.layer1(layer0)  # [-1, 256, h/4, w/4]
+                layer2 = self.layer2(layer1)  # [-1, 512, h/8, w/8]
+                layer3 = self.layer3(layer2)  # [-1, 1024, h/16, w/16]
+                layer4 = self.layer4(layer3)  # [-1, 2048, h/32, w/32]
+        else:
+            layer0 = self.layer0(x)  # [-1, 64, h/2, w/2]
+            layer1 = self.layer1(layer0)  # [-1, 256, h/4, w/4]
+            layer2 = self.layer2(layer1)  # [-1, 512, h/8, w/8]
+            layer3 = self.layer3(layer2)  # [-1, 1024, h/16, w/16]
+            layer4 = self.layer4(layer3)  # [-1, 2048, h/32, w/32]
 
-        h5_conv = self.h5_conv(layer4)
-        h4_conv = self.h4_conv(layer3)
-        h3_conv = self.h3_conv(layer2)
-        l2_conv = self.l2_conv(layer1)
+        if self.args.freeze_LCFI:
+            self.h5_conv.eval()
+            self.h4_conv.eval()
+            self.h3_conv.eval()
+            self.l2_conv.eval()
+            with torch.no_grad():
+                h5_conv = self.h5_conv(layer4)
+                h4_conv = self.h4_conv(layer3)
+                h3_conv = self.h3_conv(layer2)
+                l2_conv = self.l2_conv(layer1)
+        else:
+            h5_conv = self.h5_conv(layer4)
+            h4_conv = self.h4_conv(layer3)
+            h3_conv = self.h3_conv(layer2)
+            l2_conv = self.l2_conv(layer1)
 
         # h fusion
         h5_up = self.h5_up(h5_conv)
@@ -361,15 +385,11 @@ class LitGDNet(pl.LightningModule):
         self.val_acc = pl.metrics.Accuracy()
         self.test_acc = pl.metrics.Accuracy()
 
-        self.test_F1 = pl.metrics.F1(num_classes=1)
+        # self.test_F1 = pl.metrics.F1(num_classes=1)
 
-        self.train_FBeta = pl.metrics.FBeta(num_classes=1, beta=0.5)
-        self.val_FBeta = pl.metrics.FBeta(num_classes=1, beta=0.5)
-        self.test_FBeta = pl.metrics.FBeta(num_classes=1, beta=0.5)
-
-        self.train_PRCurve = pl.metrics.classification.PrecisionRecallCurve(num_classes=1, pos_label=1)
-        self.val_PRCurve = pl.metrics.classification.PrecisionRecallCurve(num_classes=1, pos_label=1)
-        self.test_PRCurve = pl.metrics.classification.PrecisionRecallCurve(num_classes=1, pos_label=1)
+        # self.train_FBeta = pl.metrics.FBeta(num_classes=1, beta=0.5)
+        # self.val_FBeta = pl.metrics.FBeta(num_classes=1, beta=0.5)
+        # self.test_FBeta = pl.metrics.FBeta(num_classes=1, beta=0.5)
 
         resnext = ResNeXt101(backbone_path)
         self.layer0 = resnext.layer0

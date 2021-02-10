@@ -21,8 +21,8 @@ def init_args(args):
     args.train = True
     args.batch_size = 12
     args.val_every = 2
-    args.developer_mode = False
-    args.load_model = True
+    args.developer_mode = True
+    args.load_model = False
     args.fast_dev_run = False
     args.crf = True
     args.wandb = True
@@ -30,7 +30,7 @@ def init_args(args):
     args.infer = False
     args.gdd_training_root.append(args.Sber_dataset_path)
     # args.gdd_training_root = args.Sber_dataset_path
-    args.debugging = True
+    args.debugging = False
 
     if args.debugging:
         args.wandb = False
@@ -46,7 +46,7 @@ init_args(args)
 #######################################
 # Checkpoint call back for saving the best models
 # 
-run_name = "L-"
+run_name = "Mixed-L-"
 for l in args.loss_funcs:
     run_name+= l+'-'
 # Adding the run number to the name of the run
@@ -64,33 +64,48 @@ args.log_name = run_name
 
 # Creating folder for saving the images:
 if args.developer_mode:
-    if args.train:
-        folder_path = os.path.join(args.gdd_results_root, "Training",run_name)
-        os.makedirs(folder_path)
-        args.gdd_results_root =  os.path.join(args.gdd_results_root, "Training")
-    else:
-        if not args.infer:
-            folder_path = os.path.join(args.gdd_results_root, "Testing",run_name)
-            os.makedirs(folder_path)
-            args.gdd_results_root =  os.path.join(args.gdd_results_root, "Testing")
-        else:
-            folder_path = os.path.join(args.gdd_results_root, "Inference",run_name)
-            os.makedirs(folder_path)
-            args.gdd_results_root =  os.path.join(args.gdd_results_root, "Inference")
+    folder_path = os.path.join(args.gdd_results_root, args.mode ,run_name)
+    os.makedirs(folder_path)
+    args.gdd_results_root =  os.path.join(args.gdd_results_root, args.mode)
+
+    # if args.train:
+    #     folder_path = os.path.join(args.gdd_results_root, "Training",run_name)
+    #     os.makedirs(folder_path)
+    #     args.gdd_results_root =  os.path.join(args.gdd_results_root, "Training")
+    # else:
+    #     if not args.infer:
+    #         folder_path = os.path.join(args.gdd_results_root, "Testing",run_name)
+    #         os.makedirs(folder_path)
+    #         args.gdd_results_root =  os.path.join(args.gdd_results_root, "Testing")
+    #     else:
+    #         folder_path = os.path.join(args.gdd_results_root, "Inference",run_name)
+    #         os.makedirs(folder_path)
+    #         args.gdd_results_root =  os.path.join(args.gdd_results_root, "Inference")
 
 # If training create folder for saving checkpoints
-if args.train and not args.debugging:
+if (args.mode == "train") and not args.debugging:
     this_ckpt_path = os.path.join(args.ckpt_path,run_name)
     os.makedirs(this_ckpt_path)
     # args.ckpt_path = ckpt_path
 
+# if args.train and not args.debugging:
+#     this_ckpt_path = os.path.join(args.ckpt_path,run_name)
+#     os.makedirs(this_ckpt_path)
+#     # args.ckpt_path = ckpt_path
+
 checkpoint_callback = ModelCheckpoint(
     monitor= args.monitor,
     dirpath= os.path.join(args.ckpt_path,run_name),
-    filename= 'GDNet-' + args.log_name + '-{epoch:03d}-{val_loss:.2f}',
+    filename= 'Mixed-' + args.log_name + '-{epoch:03d}-{val_loss:.2f}',
     save_top_k= args.save_top,
     mode='min',
 )
+
+# If in debugging mode no callbacks
+if args.debugging:
+    callbacks = []
+else:
+    callbacks = [checkpoint_callback]
 
 tb_logger = pl_loggers.TensorBoardLogger(save_dir = args.log_path,
                                         name = args.log_name)
@@ -144,7 +159,7 @@ def main():
                         fast_dev_run = args.fast_dev_run,
                         accelerator = 'dp',
                         max_epochs = args.epochs,
-                        callbacks = [checkpoint_callback],
+                        callbacks = callbacks,
                         check_val_every_n_epoch = args.val_every,
                         logger = model_loggers,
                         resume_from_checkpoint = args.ckpt_path+args.ckpt_name)
@@ -154,14 +169,14 @@ def main():
                         fast_dev_run = args.fast_dev_run,
                         accelerator = 'dp',
                         max_epochs = args.epochs,
-                        callbacks = [checkpoint_callback],
+                        callbacks = callbacks,
                         check_val_every_n_epoch = args.val_every,
                         logger = model_loggers)
     
     if args.wandb:
         wandb.watch(net)
 
-    if args.train:
+    if args.mode == "train":
         print("Training")
 
         trainer.fit(net)
@@ -170,14 +185,13 @@ def main():
 
         print("Done")
 
-    else:
+    elif args.mode == "test":
         print("Testing")
+        trainer.test(model = net)
+    elif args.mode == "infer":
+        print("Inference")
+        net.infer(args.infer_path)
         
-        # Testing step
-        if not args.infer:
-            trainer.test(model = net)
-        else:
-            net.infer(args.infer_path)
 
 
 if __name__ == "__main__":
