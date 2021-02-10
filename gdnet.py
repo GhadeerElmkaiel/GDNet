@@ -486,6 +486,10 @@ class LitGDNet(pl.LightningModule):
 
     def calc_loss(self, f_1, f_2, f_3, outputs):
         loss = torch.tensor(0.)
+        # loss = torch.tensor.new_zeros(1)
+        # loss.requires_grad = True
+        if f_1.is_cuda:
+            loss = torch.tensor(0., device=f_1.device.index)
         if "BCE" in self.args.loss_funcs:
             loss_BCE_1 = F.binary_cross_entropy_with_logits(f_1, outputs)*self.args.w_losses[0]
             loss_BCE_2 = F.binary_cross_entropy_with_logits(f_2, outputs)*self.args.w_losses[1]
@@ -523,7 +527,7 @@ class LitGDNet(pl.LightningModule):
         return loader
 
     def test_dataloader(self):
-        test_dataset = TestImageFolder(self.testing_path, img_transform= self.img_transform, target_transform= self.mask_transform, add_real_imgs = (self.args.developer_mode and not self.args.train))
+        test_dataset = TestImageFolder(self.testing_path, img_transform= self.img_transform, target_transform= self.mask_transform, add_real_imgs = (self.args.developer_mode and not (self.args.mode == "train")))
         loader = DataLoader(test_dataset, batch_size= self.args.test_batch_size, num_workers = 4, shuffle=False)
 
         return loader
@@ -536,11 +540,11 @@ class LitGDNet(pl.LightningModule):
         outputs.requires_grad=True
         f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
 
-        # loss = self.calc_loss(f_1_gpu, f_2_gpu, f_3_gpu, outputs)
-        loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
-        loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
-        loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
-        loss = (loss1 + loss2 + loss3)/self.sum_w_losses
+        loss = self.calc_loss(f_1_gpu, f_2_gpu, f_3_gpu, outputs)
+        # loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
+        # loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
+        # loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
+        # loss = (loss1 + loss2 + loss3)/self.sum_w_losses
 
 
         #################################
@@ -589,11 +593,11 @@ class LitGDNet(pl.LightningModule):
         
         f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
 
-        # loss = self.calc_loss(f_1_gpu, f_2_gpu, f_3_gpu, outputs)
-        loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
-        loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
-        loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
-        loss = (loss1 + loss2 + loss3)/self.sum_w_losses
+        loss = self.calc_loss(f_1_gpu, f_2_gpu, f_3_gpu, outputs)
+        # loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
+        # loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
+        # loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
+        # loss = (loss1 + loss2 + loss3)/self.sum_w_losses
 
         #################################
         # Logging metrics
@@ -736,10 +740,11 @@ class LitGDNet(pl.LightningModule):
         
         f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
 
-        loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
-        loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
-        loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
-        loss = (loss1 + loss2 + loss3)/self.sum_w_losses
+        loss = self.calc_loss(f_1_gpu, f_2_gpu, f_3_gpu, outputs)
+        # loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
+        # loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
+        # loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
+        # loss = (loss1 + loss2 + loss3)/self.sum_w_losses
 
         #################################
         # Logging metrics
@@ -763,7 +768,7 @@ class LitGDNet(pl.LightningModule):
             test_avg_precision = pl.metrics.functional.average_precision(f_1_gpu, outputs, pos_label=1)
             self.log('test_avg_precision', test_avg_precision, on_epoch=True)
 
-        if self.args.developer_mode:
+        if "iou" in self.args.metric_log:
             t = torch.tensor(self.args.iou_threshold)
             out_int = outputs.int()
             res_int = (f_1_gpu>t).int()

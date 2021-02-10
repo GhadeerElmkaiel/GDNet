@@ -55,16 +55,16 @@ def get_args():
                         help='Freeze the resnet101 backbone')
     parser.add_argument('--freeze_LCFI', action='store_true', default=False,
                         help='Freeze the LCFI modules')
-    parser.add_argument('--loss_funcs', nargs='+', type=str, default=["lovasz"],
-                        help='The loss function to use (default ["lovasz"])')
+    parser.add_argument('--loss_funcs', nargs='+', type=str, default=["lovasz", "BCE"],
+                        help='The loss function to use (default ["lovasz", "BCE"])')
     parser.add_argument('--w_losses', nargs='+', type=float, default=[1, 1, 1],
                         help='Weights for the 3 output losses (default [1, 1, 1])')
     # parser.add_argument('--w_losses_function', nargs='+', type=int, default=[1, 1],
     #                     help='Weights for the used loss funtions (default [1, 1])')
     parser.add_argument('--val_every', type=int, default=5,
                         help='Do validation epoch after how many Training epoch (default: 5)')
-    parser.add_argument('--save_top', type=int, default=8,
-                        help='The number of the top models to save (default: 8)')
+    parser.add_argument('--save_top', type=int, default=5,
+                        help='The number of the top models to save (default: 5)')
     parser.add_argument('--monitor', type=str, default="val_loss",
                         help='The Name of the value to monitor in order to save models (default: val_loss)')
 
@@ -104,7 +104,9 @@ def get_args():
     parser.add_argument('--GD_dataset_path', type=str, default="GDNet/train",
                         help='Path to GD default dataset (default: GDNet/train')
     parser.add_argument('--Sber_dataset_path', type=str, default="sber_ds",
-                        help='Path to Sber default dataset  (default: GDNet/train')
+                        help='Path to Sber dataset (default: sber_ds')
+    parser.add_argument('--no_glass_dataset_path', type=str, default="/home/ghadeer/Projects/Datasets/no_glass",
+                        help='Path to no Glass dataset (default: /home/ghadeer/Projects/Datasets/no_glass')
     parser.add_argument('--infer_path', type=str, default=root_path+"/test_images",
                         help='Path to the inference images (default: '+root_path+'/test_images')
     parser.add_argument('--log_path', type=str, default="logs/",

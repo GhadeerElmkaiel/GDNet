@@ -18,69 +18,114 @@ import wandb
 #######################################
 # Initializing the arguments for testing
 def init_args(args):
-    args.train = True
+    # args.train = True
+    # args.infer = False
+    # args.mode = "infer"
+    args.mode = "train"
     args.batch_size = 12
     args.val_every = 2
-    args.developer_mode = True
+    args.developer_mode = False
     args.load_model = False
     args.fast_dev_run = False
     args.crf = True
     args.wandb = True
+    # args.gdd_training_root = [args.GD_dataset_path, args.Sber_dataset_path, args.no_glass_dataset_path]
+    args.gdd_training_root = [args.Sber_dataset_path, args.GD_dataset_path]
+    # args.gdd_training_root.append(args.Sber_dataset_path)
+    args.epochs = 160
     args.ckpt_path = "ckpt/"
-    args.infer = False
-    args.gdd_training_root.append(args.Sber_dataset_path)
-    # args.gdd_training_root = args.Sber_dataset_path
+    args.ckpt_name = "Mixed-L-lovasz-97/Mixed-L-lovasz-97-epoch=129-val_loss=0.26.ckpt"
+    args.gdd_eval_root = "GDNet/mini_eval"
+
     args.debugging = False
 
-    if args.debugging:
+    if args.debugging :
         args.wandb = False
 
-    # args.gdd_training_root = args.root_path+"/GDNet/mini"
-    # args.gdd_eval_root = args.root_path+"/GDNet/mini_eval"
-    # args.epochs = 100
+
+#######################################
+# Creating the name of the run
+def get_run_name(args):
+    run_name = ""
+
+    if args.load_model:
+        if args.mode == "train":
+            run_name+= "Fine-Tuning-"
+            if not args.freeze_LCFI and not args.freeze_resnet:
+                run_name+= "all-"
+            if args.freeze_resnet:
+                run_name+= "frz-res-"
+            if args.freeze_LCFI:
+                run_name+= "frz-LCFI-"
+                
+        else:
+            run_name+= "Pretrained-"+args.mode
+
+    # Add the datasets to the name
+    if (len(args.gdd_training_root)>1) and isinstance(args.gdd_training_root, list):
+        run_name += "Mixed-"
+        for i in range(len(args.gdd_training_root)):
+
+            folders = args.gdd_training_root[i].split('/')
+            if folders[-1] == "train":
+                name = folders[-2]
+            else:
+                name = folders[-1]
+            run_name += name + "-"
+        run_name += "L-"
+    else:
+        # Add the name of the dataset
+        folders = args.gdd_training_root[0].split('/')
+        if folders[-1] == "train":
+            name = folders[-2]
+        else:
+            name = folders[-1]
+        # print()
+        run_name += name+"-L-"
+
+    for l in args.loss_funcs:
+        run_name+= l+'-'
+
+    if args.mode == "train":
+        # Adding the run number to the name of the run
+        f = open("run_num.log", "r+")
+        run_num = int(f.read())
+        f.close()
+
+        f = open("run_num.log", "w")
+        f.write(str(run_num+1))
+        f.close()
+
+        run_name= str(run_num) +"-"+ run_name
+        # if not args.train:
+        # run_name = args.mode  + "-" + run_name
+    else:
+        if args.load_model:
+            model = args.ckpt_name.split("/")
+            names = model[-1]
+            run_name = args.mode +"-" +names[:-5]
+    args.log_name = run_name
+
+
+    return run_name
+
+################################################################################################
+
 args = get_args()
 
 # change the argumnets for testing
 init_args(args)
 
-#######################################
-# Checkpoint call back for saving the best models
-# 
-run_name = "Mixed-L-"
-for l in args.loss_funcs:
-    run_name+= l+'-'
-# Adding the run number to the name of the run
-f = open("run_num.log", "r+")
-run_num = int(f.read())
-f.close()
+# get the name of the current run
+run_name = get_run_name(args)
 
-f = open("run_num.log", "w")
-f.write(str(run_num+1))
-f.close()
-run_name+= str(run_num)
-if not args.train:
-    run_name = "test-" + run_name
-args.log_name = run_name
 
 # Creating folder for saving the images:
-if args.developer_mode:
+if args.developer_mode or args.mode == "infer":
     folder_path = os.path.join(args.gdd_results_root, args.mode ,run_name)
     os.makedirs(folder_path)
     args.gdd_results_root =  os.path.join(args.gdd_results_root, args.mode)
 
-    # if args.train:
-    #     folder_path = os.path.join(args.gdd_results_root, "Training",run_name)
-    #     os.makedirs(folder_path)
-    #     args.gdd_results_root =  os.path.join(args.gdd_results_root, "Training")
-    # else:
-    #     if not args.infer:
-    #         folder_path = os.path.join(args.gdd_results_root, "Testing",run_name)
-    #         os.makedirs(folder_path)
-    #         args.gdd_results_root =  os.path.join(args.gdd_results_root, "Testing")
-    #     else:
-    #         folder_path = os.path.join(args.gdd_results_root, "Inference",run_name)
-    #         os.makedirs(folder_path)
-    #         args.gdd_results_root =  os.path.join(args.gdd_results_root, "Inference")
 
 # If training create folder for saving checkpoints
 if (args.mode == "train") and not args.debugging:
@@ -88,21 +133,20 @@ if (args.mode == "train") and not args.debugging:
     os.makedirs(this_ckpt_path)
     # args.ckpt_path = ckpt_path
 
-# if args.train and not args.debugging:
-#     this_ckpt_path = os.path.join(args.ckpt_path,run_name)
-#     os.makedirs(this_ckpt_path)
-#     # args.ckpt_path = ckpt_path
 
+#######################################
+# Checkpoint call back for saving the best models
+#
 checkpoint_callback = ModelCheckpoint(
     monitor= args.monitor,
     dirpath= os.path.join(args.ckpt_path,run_name),
-    filename= 'Mixed-' + args.log_name + '-{epoch:03d}-{val_loss:.2f}',
+    filename=  args.log_name + '-{epoch:03d}-{val_loss:.2f}',
     save_top_k= args.save_top,
     mode='min',
 )
 
 # If in debugging mode no callbacks
-if args.debugging:
+if args.debugging or args.mode =="infer":
     callbacks = []
 else:
     callbacks = [checkpoint_callback]
@@ -180,7 +224,7 @@ def main():
         print("Training")
 
         trainer.fit(net)
-        final_epoch_model_path = os.path.join(args.ckpt_path,run_name,"-final-epoch.ckpt") 
+        final_epoch_model_path = os.path.join(args.ckpt_path,run_name,args.log_name +"final-epoch.ckpt") 
         trainer.save_checkpoint(final_epoch_model_path)
 
         print("Done")
