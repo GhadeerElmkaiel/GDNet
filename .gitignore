@@ -7,3 +7,4 @@ wandb
 GDNet
 logs
 test_images
+run_num.log

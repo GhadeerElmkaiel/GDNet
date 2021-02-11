@@ -59,8 +59,8 @@ def get_args():
                         help='The loss function to use (default ["lovasz", "BCE"])')
     parser.add_argument('--w_losses', nargs='+', type=float, default=[1, 1, 1],
                         help='Weights for the 3 output losses (default [1, 1, 1])')
-    # parser.add_argument('--w_losses_function', nargs='+', type=int, default=[1, 1],
-    #                     help='Weights for the used loss funtions (default [1, 1])')
+    parser.add_argument('--w_losses_function', nargs='+', type=float, default=[1, 0.5],
+                        help='Weights for the used loss funtions (default [1, 1])')
     parser.add_argument('--val_every', type=int, default=5,
                         help='Do validation epoch after how many Training epoch (default: 5)')
     parser.add_argument('--save_top', type=int, default=5,

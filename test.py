@@ -34,13 +34,16 @@ def init_args(args):
     # args.gdd_training_root.append(args.Sber_dataset_path)
     args.epochs = 160
     args.ckpt_path = "ckpt/"
-    args.ckpt_name = "Mixed-L-lovasz-97/Mixed-L-lovasz-97-epoch=129-val_loss=0.26.ckpt"
+    args.ckpt_name = "4-Mixed-sber_ds-GDNet-L-lovasz-BCE-/4-Mixed-sber_ds-GDNet-L-lovasz-BCE-final-epoch.ckpt"
     args.gdd_eval_root = "GDNet/mini_eval"
 
     args.debugging = False
 
     if args.debugging :
         args.wandb = False
+
+    if args.mode =="infer":
+        args.load_model = True
 
 
 #######################################

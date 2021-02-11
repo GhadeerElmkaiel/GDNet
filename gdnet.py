@@ -490,17 +490,20 @@ class LitGDNet(pl.LightningModule):
         # loss.requires_grad = True
         if f_1.is_cuda:
             loss = torch.tensor(0., device=f_1.device.index)
-        if "BCE" in self.args.loss_funcs:
-            loss_BCE_1 = F.binary_cross_entropy_with_logits(f_1, outputs)*self.args.w_losses[0]
-            loss_BCE_2 = F.binary_cross_entropy_with_logits(f_2, outputs)*self.args.w_losses[1]
-            loss_BCE_3 = F.binary_cross_entropy_with_logits(f_3, outputs)*self.args.w_losses[2]
-            loss += (loss_BCE_1 + loss_BCE_2 + loss_BCE_3)/self.sum_w_losses
 
         if "lovasz" in self.args.loss_funcs:
             loss1 = lovasz_hinge(f_1, outputs, per_image=False)*self.args.w_losses[0]
             loss2 = lovasz_hinge(f_2, outputs, per_image=False)*self.args.w_losses[1]
             loss3 = lovasz_hinge(f_3, outputs, per_image=False)*self.args.w_losses[2]
-            loss += (loss1 + loss2 + loss3)/self.sum_w_losses
+            loss += self.args.w_losses_function[0]*(loss1 + loss2 + loss3)/self.sum_w_losses
+
+        if "BCE" in self.args.loss_funcs:
+            loss_BCE_1 = F.binary_cross_entropy_with_logits(f_1, outputs)*self.args.w_losses[0]
+            loss_BCE_2 = F.binary_cross_entropy_with_logits(f_2, outputs)*self.args.w_losses[1]
+            loss_BCE_3 = F.binary_cross_entropy_with_logits(f_3, outputs)*self.args.w_losses[2]
+            loss += self.args.w_losses_function[1]*(loss_BCE_1 + loss_BCE_2 + loss_BCE_3)/self.sum_w_losses
+
+        loss = loss/sum(self.args.w_losses_function)
         return loss
 
     #####################################
