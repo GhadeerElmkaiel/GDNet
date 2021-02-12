@@ -21,11 +21,11 @@ def init_args(args):
     # args.train = True
     # args.infer = False
     # args.mode = "infer"
-    args.mode = "train"
+    args.mode = "infer"
     args.batch_size = 12
     args.val_every = 2
     args.developer_mode = False
-    args.load_model = False
+    args.load_model = True
     args.fast_dev_run = False
     args.crf = True
     args.wandb = True
@@ -34,13 +34,15 @@ def init_args(args):
     # args.gdd_training_root.append(args.Sber_dataset_path)
     args.epochs = 160
     args.ckpt_path = "ckpt/"
-    args.ckpt_name = "4-Mixed-sber_ds-GDNet-L-lovasz-BCE-/4-Mixed-sber_ds-GDNet-L-lovasz-BCE-final-epoch.ckpt"
-    args.gdd_eval_root = "GDNet/mini_eval"
+    args.ckpt_name = "6-Fine-Tuning-all-Mixed-sber_ds-GDNet-L-lovasz-BCE-/6-Fine-Tuning-all-Mixed-sber_ds-GDNet-L-lovasz-BCE-final-epoch.ckpt"
+    args.gdd_eval_root = "GDNet/eval"
 
     args.debugging = False
 
     if args.debugging :
         args.wandb = False
+        args.gdd_eval_root = "GDNet/mini-eval"
+
 
     if args.mode =="infer":
         args.load_model = True
