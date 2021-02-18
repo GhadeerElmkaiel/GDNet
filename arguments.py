@@ -29,6 +29,8 @@ def get_args():
     # Training parameters
     parser.add_argument('--train', action='store_true', default=False,
                         help='Train the model (default: False)')
+    parser.add_argument('--debugging', action='store_true', default=False,
+                        help='debugging mode (default: False)')
     parser.add_argument('--mode', type=str, default="train",
                         help='The mode of the model (train, test, infer) (default: train)')
     parser.add_argument('--infer', action='store_true', default=False,

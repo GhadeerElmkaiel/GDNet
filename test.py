@@ -18,30 +18,35 @@ import wandb
 #######################################
 # Initializing the arguments for testing
 def init_args(args):
-    # args.train = True
-    # args.infer = False
+
     # args.mode = "infer"
-    args.mode = "infer"
+    args.mode = "train"
     args.batch_size = 12
     args.val_every = 2
     args.developer_mode = False
-    args.load_model = True
+    # args.load_model = True
     args.fast_dev_run = False
     args.crf = True
     args.wandb = True
     # args.gdd_training_root = [args.GD_dataset_path, args.Sber_dataset_path, args.no_glass_dataset_path]
     args.gdd_training_root = [args.Sber_dataset_path, args.GD_dataset_path]
-    # args.gdd_training_root.append(args.Sber_dataset_path)
-    args.epochs = 160
+    args.epochs = 250
     args.ckpt_path = "ckpt/"
-    args.ckpt_name = "6-Fine-Tuning-all-Mixed-sber_ds-GDNet-L-lovasz-BCE-/6-Fine-Tuning-all-Mixed-sber_ds-GDNet-L-lovasz-BCE-final-epoch.ckpt"
+    args.ckpt_name = "Mixed-L-lovasz-97/Mixed-Mixed-L-lovasz-97-epoch=131-val_loss=0.27.ckpt"
     args.gdd_eval_root = "GDNet/eval"
+    args.loss_funcs = ["lovasz"]
+    # args.infer_path = "/home/ghadeer/Projects/github/Collect_Dataset/dataset/rs/image"
 
-    args.debugging = False
+    # args.backbone_path = "/home/ghadeer/Projects/Glass_Detection/backbone/resnext/resnext_101_32x4d.t7"
+
+    # args.freeze_resnet = True
+    # args.freeze_LCFI = True
+
+    # args.debugging = True
 
     if args.debugging :
         args.wandb = False
-        args.gdd_eval_root = "GDNet/mini-eval"
+        args.gdd_eval_root = "GDNet/mini_eval"
 
 
     if args.mode =="infer":
@@ -200,7 +205,7 @@ else:
 
 def main():
 
-    net = LitGDNet(args)
+    net = LitGDNet(args, backbone_path=args.backbone_path)
     if args.load_model:
         net = LitGDNet.load_from_checkpoint(args.ckpt_path+args.ckpt_name, args=args)
         print('Loading {} checkpoint.'.format(args.ckpt_path + args.ckpt_name))

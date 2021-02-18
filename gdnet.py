@@ -295,40 +295,18 @@ class GDNet(nn.Module):
 
     def forward(self, x):
         # x: [batch_size, channel=3, h, w]
-        if self.args.freeze_resnet:
-            self.layer0.eval()
-            self.layer1.eval()
-            self.layer2.eval()
-            self.layer3.eval()
-            self.layer4.eval()
-            with torch.no_grad():
-                layer0 = self.layer0(x)  # [-1, 64, h/2, w/2]
-                layer1 = self.layer1(layer0)  # [-1, 256, h/4, w/4]
-                layer2 = self.layer2(layer1)  # [-1, 512, h/8, w/8]
-                layer3 = self.layer3(layer2)  # [-1, 1024, h/16, w/16]
-                layer4 = self.layer4(layer3)  # [-1, 2048, h/32, w/32]
-        else:
-            layer0 = self.layer0(x)  # [-1, 64, h/2, w/2]
-            layer1 = self.layer1(layer0)  # [-1, 256, h/4, w/4]
-            layer2 = self.layer2(layer1)  # [-1, 512, h/8, w/8]
-            layer3 = self.layer3(layer2)  # [-1, 1024, h/16, w/16]
-            layer4 = self.layer4(layer3)  # [-1, 2048, h/32, w/32]
+        
+        layer0 = self.layer0(x)  # [-1, 64, h/2, w/2]
+        layer1 = self.layer1(layer0)  # [-1, 256, h/4, w/4]
+        layer2 = self.layer2(layer1)  # [-1, 512, h/8, w/8]
+        layer3 = self.layer3(layer2)  # [-1, 1024, h/16, w/16]
+        layer4 = self.layer4(layer3)  # [-1, 2048, h/32, w/32]
 
-        if self.args.freeze_LCFI:
-            self.h5_conv.eval()
-            self.h4_conv.eval()
-            self.h3_conv.eval()
-            self.l2_conv.eval()
-            with torch.no_grad():
-                h5_conv = self.h5_conv(layer4)
-                h4_conv = self.h4_conv(layer3)
-                h3_conv = self.h3_conv(layer2)
-                l2_conv = self.l2_conv(layer1)
-        else:
-            h5_conv = self.h5_conv(layer4)
-            h4_conv = self.h4_conv(layer3)
-            h3_conv = self.h3_conv(layer2)
-            l2_conv = self.l2_conv(layer1)
+        h5_conv = self.h5_conv(layer4)
+        h4_conv = self.h4_conv(layer3)
+        h3_conv = self.h3_conv(layer2)
+        l2_conv = self.l2_conv(layer1)
+
 
         # h fusion
         h5_up = self.h5_up(h5_conv)
@@ -398,10 +376,28 @@ class LitGDNet(pl.LightningModule):
         self.layer3 = resnext.layer3
         self.layer4 = resnext.layer4
 
+        if self.args.freeze_resnet:
+            self.layer0.eval()
+            self.layer1.eval()
+            self.layer2.eval()
+            self.layer3.eval()
+            self.layer4.eval()
+            for child in self.layer0.children():
+                child.requires_grad = False
+            for child in self.layer1.children():
+                child.requires_grad = False
+
+
         self.h5_conv = LCFI(2048, 1, 2, 3, 4)
         self.h4_conv = LCFI(1024, 1, 2, 3, 4)
         self.h3_conv = LCFI(512, 1, 2, 3, 4)
         self.l2_conv = LCFI(256, 1, 2, 3, 4)
+
+        if self.args.freeze_LCFI:
+            self.h5_conv.eval()
+            self.h4_conv.eval()
+            self.h3_conv.eval()
+            self.l2_conv.eval()
 
         # h fusion
         self.h5_up = nn.UpsamplingBilinear2d(scale_factor=2)
@@ -423,6 +419,13 @@ class LitGDNet(pl.LightningModule):
         self.l_predict = nn.Conv2d(64, 1, 3, 1, 1)
         self.final_predict = nn.Conv2d(320, 1, 3, 1, 1)
 
+        # self.h5_up.eval()
+        # self.h3_down.eval()
+        # self.h_fusion.eval()
+        # self.h_fusion_conv.eval()
+        # self.l_fusion_conv.eval()
+        # self.h2l.eval()
+
         for m in self.modules():
             if isinstance(m, nn.ReLU):
                 m.inplace = True
@@ -441,16 +444,41 @@ class LitGDNet(pl.LightningModule):
 
     def forward(self, x):
         # x: [batch_size, channel=3, h, w]
-        layer0 = self.layer0(x)  # [-1, 64, h/2, w/2]
-        layer1 = self.layer1(layer0)  # [-1, 256, h/4, w/4]
-        layer2 = self.layer2(layer1)  # [-1, 512, h/8, w/8]
-        layer3 = self.layer3(layer2)  # [-1, 1024, h/16, w/16]
-        layer4 = self.layer4(layer3)  # [-1, 2048, h/32, w/32]
+        if self.args.freeze_resnet:
+            self.layer0.eval()
+            self.layer1.eval()
+            self.layer2.eval()
+            self.layer3.eval()
+            self.layer4.eval()
+            with torch.no_grad():
+                layer0 = self.layer0(x)  # [-1, 64, h/2, w/2]
+                layer1 = self.layer1(layer0)  # [-1, 256, h/4, w/4]
+                layer2 = self.layer2(layer1)  # [-1, 512, h/8, w/8]
+                layer3 = self.layer3(layer2)  # [-1, 1024, h/16, w/16]
+                layer4 = self.layer4(layer3)  # [-1, 2048, h/32, w/32]
+        else:
+            layer0 = self.layer0(x)  # [-1, 64, h/2, w/2]
+            layer1 = self.layer1(layer0)  # [-1, 256, h/4, w/4]
+            layer2 = self.layer2(layer1)  # [-1, 512, h/8, w/8]
+            layer3 = self.layer3(layer2)  # [-1, 1024, h/16, w/16]
+            layer4 = self.layer4(layer3)  # [-1, 2048, h/32, w/32]
 
-        h5_conv = self.h5_conv(layer4)
-        h4_conv = self.h4_conv(layer3)
-        h3_conv = self.h3_conv(layer2)
-        l2_conv = self.l2_conv(layer1)
+        if self.args.freeze_LCFI:
+            self.h5_conv.eval()
+            self.h4_conv.eval()
+            self.h3_conv.eval()
+            self.l2_conv.eval()
+            with torch.no_grad():
+                h5_conv = self.h5_conv(layer4)
+                h4_conv = self.h4_conv(layer3)
+                h3_conv = self.h3_conv(layer2)
+                l2_conv = self.l2_conv(layer1)
+        else:
+            h5_conv = self.h5_conv(layer4)
+            h4_conv = self.h4_conv(layer3)
+            h3_conv = self.h3_conv(layer2)
+            l2_conv = self.l2_conv(layer1)
+
 
         # h fusion
         h5_up = self.h5_up(h5_conv)
@@ -490,20 +518,22 @@ class LitGDNet(pl.LightningModule):
         # loss.requires_grad = True
         if f_1.is_cuda:
             loss = torch.tensor(0., device=f_1.device.index)
-
+        loss_fun_w_sum = 1e-8
         if "lovasz" in self.args.loss_funcs:
             loss1 = lovasz_hinge(f_1, outputs, per_image=False)*self.args.w_losses[0]
             loss2 = lovasz_hinge(f_2, outputs, per_image=False)*self.args.w_losses[1]
             loss3 = lovasz_hinge(f_3, outputs, per_image=False)*self.args.w_losses[2]
             loss += self.args.w_losses_function[0]*(loss1 + loss2 + loss3)/self.sum_w_losses
+            loss_fun_w_sum+= self.args.w_losses_function[0]
 
         if "BCE" in self.args.loss_funcs:
             loss_BCE_1 = F.binary_cross_entropy_with_logits(f_1, outputs)*self.args.w_losses[0]
             loss_BCE_2 = F.binary_cross_entropy_with_logits(f_2, outputs)*self.args.w_losses[1]
             loss_BCE_3 = F.binary_cross_entropy_with_logits(f_3, outputs)*self.args.w_losses[2]
             loss += self.args.w_losses_function[1]*(loss_BCE_1 + loss_BCE_2 + loss_BCE_3)/self.sum_w_losses
+            loss_fun_w_sum+= self.args.w_losses_function[1]
 
-        loss = loss/sum(self.args.w_losses_function)
+        loss = loss/loss_fun_w_sum
         return loss
 
     #####################################

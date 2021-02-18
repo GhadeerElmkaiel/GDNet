@@ -14,6 +14,10 @@ import os.path
 import torch.utils.data as data
 from PIL import Image
 import numpy as np
+from torchvision import transforms
+import torchvision.transforms.functional as TF
+
+import random as r
 
 
 def make_dataset(root):
@@ -35,7 +39,7 @@ def make_dataset(root):
 
 
 class ImageFolder(data.Dataset):
-    def __init__(self, root, joint_transform=None, img_transform=None, target_transform=None, add_real_imgs=False):
+    def __init__(self, root, joint_transform=None, img_transform=None, target_transform=None, add_real_imgs=False, random_percent = 0.5):
         self.root = root
         self.imgs = make_dataset(root)
         self.joint_transform = joint_transform
@@ -43,11 +47,24 @@ class ImageFolder(data.Dataset):
         self.target_transform = target_transform
         self.len = len(self.imgs)
         self.add_real_imgs = add_real_imgs
+        self.random_percent = random_percent
+        
 
     def __getitem__(self, index):
         img_path, gt_path = self.imgs[index]
         img = Image.open(img_path).convert('RGB')
         target = Image.open(gt_path).convert('L')
+        width, height = img.size
+        output_size=(int(height*0.8), int(width*0.8))
+        if r.random() < self.random_percent:
+            i, j, h, w = transforms.RandomCrop.get_params(img, output_size= output_size)
+            img = TF.crop(img, i, j, h, w)
+            target = TF.crop(target, i, j, h, w)
+
+        if r.random() < self.random_percent:
+            img = TF.hflip(img)
+            target = TF.hflip(target)
+
         if self.joint_transform is not None:
             img, target = self.joint_transform(img, target)
         if self.img_transform is not None:
