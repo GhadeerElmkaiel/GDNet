@@ -17,6 +17,8 @@ import numpy as np
 from torchvision import transforms
 import torchvision.transforms.functional as TF
 
+from skimage import feature
+
 import random as r
 
 
@@ -54,16 +56,26 @@ class ImageFolder(data.Dataset):
         img_path, gt_path = self.imgs[index]
         img = Image.open(img_path).convert('RGB')
         target = Image.open(gt_path).convert('L')
+        # Creating the boundaries for the mask
+        target_np = np.array(target)
+        edges = feature.canny(target_np)
+        plt.imshow()
+        print("Max in mask image:", np.amax(target_np))
+        print("Max in boundaries image:", np.amax(edges))
+        edges = Image.fromarray(edges)
+        
         width, height = img.size
         output_size=(int(height*0.8), int(width*0.8))
         if r.random() < self.random_percent:
             i, j, h, w = transforms.RandomCrop.get_params(img, output_size= output_size)
             img = TF.crop(img, i, j, h, w)
             target = TF.crop(target, i, j, h, w)
+            edges = TF.crop(edges, i, j, h, w)
 
         if r.random() < self.random_percent:
             img = TF.hflip(img)
             target = TF.hflip(target)
+            edges = TF.hflip(edges)
 
         if self.joint_transform is not None:
             img, target = self.joint_transform(img, target)
@@ -71,9 +83,10 @@ class ImageFolder(data.Dataset):
             img = self.img_transform(img)
         if self.target_transform is not None:
             target = self.target_transform(target)
+            edges = self.target_transform(edges)
         # print("Image:  ",img.size())
         # print("Target: ",target.size())
-        return img, target
+        return img, target, edges
 
     def __len__(self):
         return self.len
