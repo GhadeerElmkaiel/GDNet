@@ -32,7 +32,7 @@ def init_args(args):
     args.gdd_training_root = [args.Sber_dataset_path, args.GD_dataset_path]
     args.epochs = 250
     args.ckpt_path = "ckpt/"
-    args.ckpt_name = "Mixed-L-lovasz-97/Mixed-Mixed-L-lovasz-97-epoch=131-val_loss=0.27.ckpt"
+    args.ckpt_name = "32-Mixed-sber_ds-GDNet-L-lovasz-/32-Mixed-sber_ds-GDNet-L-lovasz--epoch=143-val_loss=0.21.ckpt"
     args.gdd_eval_root = "GDNet/eval"
     args.loss_funcs = ["lovasz"]
     # args.infer_path = "/home/ghadeer/Projects/github/Collect_Dataset/dataset/rs/image"
@@ -42,7 +42,7 @@ def init_args(args):
     # args.freeze_resnet = True
     # args.freeze_LCFI = True
 
-    # args.debugging = True
+    args.debugging = True
 
     if args.debugging :
         args.wandb = False
@@ -232,6 +232,7 @@ def main():
 
     if args.mode == "train":
         print("Training")
+
 
         trainer.fit(net)
         final_epoch_model_path = os.path.join(args.ckpt_path,run_name,args.log_name +"final-epoch.ckpt") 

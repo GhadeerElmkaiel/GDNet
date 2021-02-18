@@ -43,6 +43,10 @@ def get_args():
                         help='Shuffle thee dataset while training (default: True)')
     parser.add_argument('--batch_size', type=int, default=12,
                         help='The Training batch size (default: 12)')
+    parser.add_argument('--rand_augmentation_prob', type=float, default=0.5,
+                        help='The probability of doing each random transformation on data (default: 0.5)')
+    parser.add_argument('--image_crop_percentage', type=float, default=0.8,
+                        help='The percentage of image size after cropping (default: 0.8)')
     parser.add_argument('--eval_batch_size', type=int, default=1,
                         help='The evaluation batch size (default: 1)')
     parser.add_argument('--test_batch_size', type=int, default=1,

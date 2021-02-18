@@ -14,6 +14,7 @@ from backbone.resnext.resnext101_regular import ResNeXt101
 import pytorch_lightning as pl
 from utils.optimizer import get_optim
 from PIL import Image
+from skimage import feature
 
 import wandb
 
@@ -536,6 +537,45 @@ class LitGDNet(pl.LightningModule):
         loss = loss/loss_fun_w_sum
         return loss
 
+    def calc_loss_2(self, f_1, f_2, f_3, outputs, edges):
+        loss = torch.tensor(0.)
+        # loss = torch.tensor.new_zeros(1)
+        # loss.requires_grad = True
+        if f_1.is_cuda:
+            loss = torch.tensor(0., device=f_1.device.index)
+            low_image = f_2.cpu().detach().numpy()
+        else:
+            low_image = f_2.numpy()
+        low_image = np.squeeze(low_image)
+        pred_edges = np.array([feature.canny(img)*255 for img in low_image])
+        pred_edges = np.expand_dims(pred_edges,1)
+        pred_edges = pred_edges.astype(np.uint8)
+        if f_1.is_cuda:
+            pred_edges = torch.tensor(pred_edges, device=f_1.device.index)
+        else:
+            pred_edges = torch.tensor(pred_edges)
+
+        loss_fun_w_sum = 1e-8
+        if "lovasz" in self.args.loss_funcs:
+            loss1 = lovasz_hinge(f_1, outputs, per_image=False)*self.args.w_losses[0]
+            loss2 = lovasz_hinge(f_2, outputs, per_image=False)*self.args.w_losses[1]
+            # loss4 = lovasz_hinge(pred_edges, edges, per_image=False)*self.args.w_losses[1]
+            loss4 = F.binary_cross_entropy_with_logits(pred_edges, edges)*self.args.w_losses[1]
+            loss3 = lovasz_hinge(f_3, outputs, per_image=False)*self.args.w_losses[2]
+            loss += self.args.w_losses_function[0]*(loss1 + loss2 + loss3 + loss4)/(self.sum_w_losses + self.args.w_losses[1])
+            loss_fun_w_sum+= self.args.w_losses_function[0]
+
+        if "BCE" in self.args.loss_funcs:
+            loss_BCE_1 = F.binary_cross_entropy_with_logits(f_1, outputs)*self.args.w_losses[0]
+            loss_BCE_2 = F.binary_cross_entropy_with_logits(f_2, outputs)*self.args.w_losses[1]
+            loss_BCE_4 = F.binary_cross_entropy_with_logits(pred_edges, edges)*self.args.w_losses[1]
+            loss_BCE_3 = F.binary_cross_entropy_with_logits(f_3, outputs)*self.args.w_losses[2]
+            loss += self.args.w_losses_function[1]*(loss_BCE_1 + loss_BCE_2 + loss_BCE_3 + loss_BCE_4)/(self.sum_w_losses + self.args.w_losses[1])
+            loss_fun_w_sum+= self.args.w_losses_function[1]
+
+        loss = loss/loss_fun_w_sum
+        return loss
+
     #####################################
     # Ligtning functions
     #####################################
@@ -547,7 +587,7 @@ class LitGDNet(pl.LightningModule):
     # Loader functions
     #####################################
     def train_dataloader(self):
-        dataset = ImageFolder(self.training_path, img_transform= self.img_transform, target_transform= self.mask_transform)
+        dataset = ImageFolder(self.training_path, img_transform= self.img_transform, target_transform= self.mask_transform, random_percent=self.args.rand_augmentation_prob, image_crop_percentage=self.args.image_crop_percentage)
         loader = DataLoader(dataset, batch_size= self.args.batch_size, num_workers = 4, shuffle=self.args.shuffle_dataset)
 
         return loader
@@ -568,12 +608,14 @@ class LitGDNet(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         inputs = batch[0]
         outputs = batch[1]
+        edges = batch[2]
 
         inputs.requires_grad=True
         outputs.requires_grad=True
         f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
 
-        loss = self.calc_loss(f_1_gpu, f_2_gpu, f_3_gpu, outputs)
+        loss = self.calc_loss_2(f_1_gpu, f_2_gpu, f_3_gpu, outputs, edges)
+        # loss = self.calc_loss(f_1_gpu, f_2_gpu, f_3_gpu, outputs)
         # loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
         # loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
         # loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]

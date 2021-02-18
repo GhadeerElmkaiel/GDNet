@@ -10,6 +10,7 @@
 """
 import os
 import os.path
+from torch import uint8
 
 import torch.utils.data as data
 from PIL import Image
@@ -18,6 +19,7 @@ from torchvision import transforms
 import torchvision.transforms.functional as TF
 
 from skimage import feature
+import matplotlib.pyplot as plt
 
 import random as r
 
@@ -41,7 +43,7 @@ def make_dataset(root):
 
 
 class ImageFolder(data.Dataset):
-    def __init__(self, root, joint_transform=None, img_transform=None, target_transform=None, add_real_imgs=False, random_percent = 0.5):
+    def __init__(self, root, joint_transform=None, img_transform=None, target_transform=None, add_real_imgs=False, random_percent = 0.5, image_crop_percentage= 0.8):
         self.root = root
         self.imgs = make_dataset(root)
         self.joint_transform = joint_transform
@@ -50,6 +52,7 @@ class ImageFolder(data.Dataset):
         self.len = len(self.imgs)
         self.add_real_imgs = add_real_imgs
         self.random_percent = random_percent
+        self.image_crop_percentage = image_crop_percentage
         
 
     def __getitem__(self, index):
@@ -58,14 +61,17 @@ class ImageFolder(data.Dataset):
         target = Image.open(gt_path).convert('L')
         # Creating the boundaries for the mask
         target_np = np.array(target)
-        edges = feature.canny(target_np)
-        plt.imshow()
-        print("Max in mask image:", np.amax(target_np))
-        print("Max in boundaries image:", np.amax(edges))
+        edges = feature.canny(target_np)*255
+        edges = edges.astype(np.uint8)
+
+        # plt.imshow(edges)
+        # print("Max in mask image:", np.amax(target_np))
+        # print("Max in boundaries image:", np.amax(edges))
         edges = Image.fromarray(edges)
+        # edges.show()
         
         width, height = img.size
-        output_size=(int(height*0.8), int(width*0.8))
+        output_size=(int(height*self.image_crop_percentage), int(width*self.image_crop_percentage))
         if r.random() < self.random_percent:
             i, j, h, w = transforms.RandomCrop.get_params(img, output_size= output_size)
             img = TF.crop(img, i, j, h, w)
@@ -99,7 +105,7 @@ class ImageFolder(data.Dataset):
         indices = np.random.choice(self.len, batch_size, replace=False)
         masks = []
         for i in indices:
-            (img, mask) = self.__getitem__(i)
+            (img, mask, edges) = self.__getitem__(i)
             batch["img"].append(np.asarray(img))
             masks.append(np.asarray(mask))
 
