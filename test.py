@@ -18,10 +18,11 @@ import wandb
 #######################################
 # Initializing the arguments for testing
 def init_args(args):
-
+    # args.train = True
+    # args.infer = False
     # args.mode = "infer"
     args.mode = "train"
-    args.batch_size = 12
+    args.batch_size = 10
     args.val_every = 2
     args.developer_mode = False
     # args.load_model = True
@@ -30,19 +31,13 @@ def init_args(args):
     args.wandb = True
     # args.gdd_training_root = [args.GD_dataset_path, args.Sber_dataset_path, args.no_glass_dataset_path]
     args.gdd_training_root = [args.Sber_dataset_path, args.GD_dataset_path]
-    args.epochs = 250
+    # args.gdd_training_root.append(args.Sber_dataset_path)
+    args.epochs = 300
     args.ckpt_path = "ckpt/"
-    args.ckpt_name = "32-Mixed-sber_ds-GDNet-L-lovasz-/32-Mixed-sber_ds-GDNet-L-lovasz--epoch=143-val_loss=0.21.ckpt"
+    args.ckpt_name = "33-Fine-Tuning-all-Mixed-sber_ds-GDNet-L-lovasz-BCE-/33-Fine-Tuning-all-Mixed-sber_ds-GDNet-L-lovasz-BCE--epoch=233-val_loss=0.33.ckpt"
     args.gdd_eval_root = "GDNet/eval"
-    args.loss_funcs = ["lovasz"]
-    # args.infer_path = "/home/ghadeer/Projects/github/Collect_Dataset/dataset/rs/image"
 
-    # args.backbone_path = "/home/ghadeer/Projects/Glass_Detection/backbone/resnext/resnext_101_32x4d.t7"
-
-    # args.freeze_resnet = True
-    # args.freeze_LCFI = True
-
-    args.debugging = True
+    args.debugging = False
 
     if args.debugging :
         args.wandb = False
@@ -195,17 +190,19 @@ if args.cuda:
     torch.cuda.set_device(device_ids[0])
 
 # Init Weights and Biases
-if args.wandb:
-    wandb.init(project='GDNet', name= run_name)
-    config = wandb.config
-    model_loggers = [tb_logger, wb_logger]
-else:
-    model_loggers = [tb_logger]
+model_loggers = []
+if not args.debugging:
+    if args.wandb:
+        wandb.init(project='GDNet', name= run_name)
+        config = wandb.config
+        model_loggers = [tb_logger, wb_logger]
+    else:
+        model_loggers = [tb_logger]
 
 
 def main():
 
-    net = LitGDNet(args, backbone_path=args.backbone_path)
+    net = LitGDNet(args)
     if args.load_model:
         net = LitGDNet.load_from_checkpoint(args.ckpt_path+args.ckpt_name, args=args)
         print('Loading {} checkpoint.'.format(args.ckpt_path + args.ckpt_name))
@@ -232,7 +229,6 @@ def main():
 
     if args.mode == "train":
         print("Training")
-
 
         trainer.fit(net)
         final_epoch_model_path = os.path.join(args.ckpt_path,run_name,args.log_name +"final-epoch.ckpt") 

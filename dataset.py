@@ -20,6 +20,7 @@ import torchvision.transforms.functional as TF
 
 from skimage import feature
 import matplotlib.pyplot as plt
+import cv2
 
 import random as r
 
@@ -61,7 +62,14 @@ class ImageFolder(data.Dataset):
         target = Image.open(gt_path).convert('L')
         # Creating the boundaries for the mask
         target_np = np.array(target)
-        edges = feature.canny(target_np)*255
+        edges = feature.canny(target_np)
+        edges = edges.astype(np.uint8)
+        edges = edges*255
+        # cv2.imshow("Image",edges)
+        # plt.imshow(edges)
+        kernel = np.ones((5,5),np.uint8)
+        edges = cv2.dilate(edges,kernel,iterations = 1)
+        # cv2.imshow("Image", edges)
         edges = edges.astype(np.uint8)
 
         # plt.imshow(edges)
@@ -101,17 +109,31 @@ class ImageFolder(data.Dataset):
         """
         function for getting batch of items of the dataset
         """
-        batch = {"img":[], "mask":[], "size":[], "r_img":[], "r_mask":[]}
+        batch = {"img":[], "mask":[], "size":[], "r_img":[], "r_mask":[], "r_edges":[]}
         indices = np.random.choice(self.len, batch_size, replace=False)
         masks = []
+        # edges = []
         for i in indices:
-            (img, mask, edges) = self.__getitem__(i)
+            (img, mask, edge) = self.__getitem__(i)
             batch["img"].append(np.asarray(img))
             masks.append(np.asarray(mask))
-
+            # edges.append(np.asarray(edge))
             img_path, gt_path = self.imgs[i]
             img = Image.open(img_path).convert('RGB')
             mask = Image.open(gt_path).convert('L')
+            # edge = np.asarray(edge)
+            # edge = edge.astype(np.uint8)
+            # edge_ = Image.fromarray(edge).astype(np.uint8)
+            target_np = np.array(mask)
+            edge_ = feature.canny(target_np)
+            edge_ = edge_.astype(np.uint8)
+            edge_ = edge_*255
+            # cv2.imshow("Image",edges)
+            # plt.imshow(edges)
+            kernel = np.ones((9,9),np.uint8)
+            edge_ = cv2.dilate(edge_,kernel,iterations = 1)
+            # cv2.imshow("Image", edges)
+            edge_ = edge_.astype(np.uint8)
             
             # Adding the real images to the batch for debugging if needed
             #TODO
@@ -121,6 +143,8 @@ class ImageFolder(data.Dataset):
             #     batch["r_mask"].append(mask)
             batch["r_img"].append(img)
             batch["r_mask"].append(mask)
+            batch["r_edges"].append(Image.fromarray(edge_))
+            # batch["r_edges"].append(np.asarray(edges))
             
             # Adding the real image size to the batch
             w, h = img.size

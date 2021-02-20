@@ -171,3 +171,22 @@ def mean(l, ignore_nan=False, empty=0):
     if n == 1:
         return acc
     return acc / n
+
+
+
+def get_edge_pixles(pred, target):
+    """
+    Flattens predictions in the batch (binary case)
+    """
+    pred = pred.view(-1)
+    target = target.view(-1)
+    in_edge = (target != 0)
+    out_edge = (target == 0.)
+    edge_pix = pred[in_edge]
+    non_edge_pix = pred[out_edge]
+    return edge_pix, non_edge_pix
+
+def edge_loss(pred, target):
+    edge_pix, non_edge_pix = get_edge_pixles(pred, target)
+    loss = (-(edge_pix.log()).mean() -((1.-non_edge_pix).log()).mean())/2.
+    return loss

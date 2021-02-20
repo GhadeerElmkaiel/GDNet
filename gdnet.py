@@ -18,7 +18,7 @@ from skimage import feature
 
 import wandb
 
-from utils.loss import lovasz_hinge
+from utils.loss import lovasz_hinge, edge_loss
 
 to_pil = transforms.ToPILImage()
 
@@ -393,18 +393,28 @@ class LitGDNet(pl.LightningModule):
         self.h4_conv = LCFI(1024, 1, 2, 3, 4)
         self.h3_conv = LCFI(512, 1, 2, 3, 4)
         self.l2_conv = LCFI(256, 1, 2, 3, 4)
+        self.edge_conv_l = LCFI(256, 1, 2, 3, 4)
+        self.edge_conv_h = LCFI(1024, 1, 2, 3, 4)
 
         if self.args.freeze_LCFI:
             self.h5_conv.eval()
             self.h4_conv.eval()
             self.h3_conv.eval()
             self.l2_conv.eval()
+            self.edge_conv_l.eval()
+            self.edge_conv_h.eval()
 
         # h fusion
         self.h5_up = nn.UpsamplingBilinear2d(scale_factor=2)
         self.h3_down = nn.AvgPool2d((2, 2), stride=2)
         self.h_fusion = CBAM(896)
         self.h_fusion_conv = nn.Sequential(nn.Conv2d(896, 896, 3, 1, 1), nn.BatchNorm2d(896), nn.ReLU())
+
+        # edge fusion
+        self.edge_h_up = nn.UpsamplingBilinear2d(scale_factor=2)
+        self.edge_l_down = nn.AvgPool2d((2, 2), stride=2)
+        self.edge_fusion = CBAM(320)
+        self.edge_fusion_conv = nn.Sequential(nn.Conv2d(320, 256, 3, 1, 1), nn.BatchNorm2d(256), nn.ReLU(), nn.Conv2d(256, 1, 3, 1, 1))
 
         # l fusion
         self.l_fusion_conv = nn.Sequential(nn.Conv2d(64, 64, 3, 1, 1), nn.BatchNorm2d(64), nn.ReLU())
@@ -419,6 +429,9 @@ class LitGDNet(pl.LightningModule):
         self.h_predict = nn.Conv2d(896, 1, 3, 1, 1)
         self.l_predict = nn.Conv2d(64, 1, 3, 1, 1)
         self.final_predict = nn.Conv2d(320, 1, 3, 1, 1)
+
+        # Refinement
+        self.refinement = nn.Sequential(nn.Conv2d(2, 1, 3, 1, 1), nn.Conv2d(1, 1, 3, 1, 1), nn.BatchNorm2d(1), nn.ReLU())
 
         # self.h5_up.eval()
         # self.h3_down.eval()
@@ -469,16 +482,22 @@ class LitGDNet(pl.LightningModule):
             self.h4_conv.eval()
             self.h3_conv.eval()
             self.l2_conv.eval()
+            self.edge_conv_l.eval()
+            self.edge_conv_h.eval()
             with torch.no_grad():
                 h5_conv = self.h5_conv(layer4)
                 h4_conv = self.h4_conv(layer3)
                 h3_conv = self.h3_conv(layer2)
                 l2_conv = self.l2_conv(layer1)
+                edge_conv_l = self.edge_conv_l(layer1)
+                edge_conv_h = self.edge_conv_h(layer3)
         else:
             h5_conv = self.h5_conv(layer4)
             h4_conv = self.h4_conv(layer3)
             h3_conv = self.h3_conv(layer2)
             l2_conv = self.l2_conv(layer1)
+            edge_conv_l = self.edge_conv_l(layer1)
+            edge_conv_h = self.edge_conv_h(layer3)
 
 
         # h fusion
@@ -491,6 +510,12 @@ class LitGDNet(pl.LightningModule):
         l_fusion = self.l_fusion_conv(l2_conv)
         h2l = self.h2l(h_fusion)
         l_fusion = torch.sigmoid(h2l) * l_fusion
+
+        edge_h_up = self.edge_h_up(edge_conv_h)
+        edge_l_down = self.edge_l_down(edge_conv_l)
+        edge_fusion = self.edge_fusion(torch.cat((edge_h_up, edge_l_down), 1))
+        edge_fusion = self.edge_fusion_conv(edge_fusion)
+
 
         # final fusion
         h_up_for_final_fusion = self.h_up_for_final_fusion(h_fusion)
@@ -510,8 +535,13 @@ class LitGDNet(pl.LightningModule):
         h_predict = F.interpolate(h_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
         l_predict = F.interpolate(l_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
         final_predict = F.interpolate(final_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
+        edge_predict = F.interpolate(edge_fusion, size=x.size()[2:], mode='bilinear', align_corners=True)
 
-        return torch.sigmoid(h_predict), torch.sigmoid(l_predict), torch.sigmoid(final_predict)
+
+        # final refined prediction
+        refine_predict = self.refinement(torch.cat((edge_predict, final_predict), 1))
+
+        return torch.sigmoid(h_predict), torch.sigmoid(l_predict), torch.sigmoid(final_predict), torch.sigmoid(refine_predict), torch.sigmoid(edge_predict)
 
     def calc_loss(self, f_1, f_2, f_3, outputs):
         loss = torch.tensor(0.)
@@ -537,42 +567,37 @@ class LitGDNet(pl.LightningModule):
         loss = loss/loss_fun_w_sum
         return loss
 
-    def calc_loss_2(self, f_1, f_2, f_3, outputs, edges):
+    def calc_loss_2(self, pred_h, pred_l, pred_f, pred_ref, pred_edges, outputs, edges):
         loss = torch.tensor(0.)
         # loss = torch.tensor.new_zeros(1)
         # loss.requires_grad = True
-        if f_1.is_cuda:
-            loss = torch.tensor(0., device=f_1.device.index)
-            low_image = f_2.cpu().detach().numpy()
-        else:
-            low_image = f_2.numpy()
-        low_image = np.squeeze(low_image)
-        pred_edges = np.array([feature.canny(img)*255 for img in low_image])
-        pred_edges = np.expand_dims(pred_edges,1)
-        pred_edges = pred_edges.astype(np.uint8)
-        if f_1.is_cuda:
-            pred_edges = torch.tensor(pred_edges, device=f_1.device.index)
-        else:
-            pred_edges = torch.tensor(pred_edges)
-
+        if pred_h.is_cuda:
+            loss = torch.tensor(0., device=pred_h.device.index)
         loss_fun_w_sum = 1e-8
         if "lovasz" in self.args.loss_funcs:
-            loss1 = lovasz_hinge(f_1, outputs, per_image=False)*self.args.w_losses[0]
-            loss2 = lovasz_hinge(f_2, outputs, per_image=False)*self.args.w_losses[1]
-            # loss4 = lovasz_hinge(pred_edges, edges, per_image=False)*self.args.w_losses[1]
-            loss4 = F.binary_cross_entropy_with_logits(pred_edges, edges)*self.args.w_losses[1]
-            loss3 = lovasz_hinge(f_3, outputs, per_image=False)*self.args.w_losses[2]
-            loss += self.args.w_losses_function[0]*(loss1 + loss2 + loss3 + loss4)/(self.sum_w_losses + self.args.w_losses[1])
+            loss1 = lovasz_hinge(pred_h, outputs, per_image=False)*self.args.w_losses[0]
+            loss2 = lovasz_hinge(pred_l, outputs, per_image=False)*self.args.w_losses[1]
+            loss3 = lovasz_hinge(pred_f, outputs, per_image=False)*self.args.w_losses[2]
+            loss4 = lovasz_hinge(pred_ref, outputs, per_image=False)*self.args.w_losses[3]
+            sum_w = self.args.w_losses[0] + self.args.w_losses[1] + self.args.w_losses[2] + self.args.w_losses[3]
+            loss += self.args.w_losses_function[0]*(loss1 + loss2 + loss3 + loss4)/sum_w
+            # loss += self.args.w_losses_function[0]*(loss1 + loss2 + loss3 + loss4)/self.sum_w_losses
             loss_fun_w_sum+= self.args.w_losses_function[0]
 
         if "BCE" in self.args.loss_funcs:
-            loss_BCE_1 = F.binary_cross_entropy_with_logits(f_1, outputs)*self.args.w_losses[0]
-            loss_BCE_2 = F.binary_cross_entropy_with_logits(f_2, outputs)*self.args.w_losses[1]
-            loss_BCE_4 = F.binary_cross_entropy_with_logits(pred_edges, edges)*self.args.w_losses[1]
-            loss_BCE_3 = F.binary_cross_entropy_with_logits(f_3, outputs)*self.args.w_losses[2]
-            loss += self.args.w_losses_function[1]*(loss_BCE_1 + loss_BCE_2 + loss_BCE_3 + loss_BCE_4)/(self.sum_w_losses + self.args.w_losses[1])
+            loss_BCE_1 = F.binary_cross_entropy_with_logits(pred_h, outputs)*self.args.w_losses[0]
+            loss_BCE_2 = F.binary_cross_entropy_with_logits(pred_l, outputs)*self.args.w_losses[1]
+            loss_BCE_3 = F.binary_cross_entropy_with_logits(pred_f, outputs)*self.args.w_losses[2]
+            loss_BCE_4 = F.binary_cross_entropy_with_logits(pred_ref, outputs)*self.args.w_losses[3]
+            sum_w = self.args.w_losses[0] + self.args.w_losses[1] + self.args.w_losses[2] + self.args.w_losses[3]
+            # loss_BCE_edge = F.binary_cross_entropy_with_logits(pred_edges, edges)*self.args.w_losses[4]
+            loss += self.args.w_losses_function[1]*(loss_BCE_1 + loss_BCE_2 + loss_BCE_3 + loss_BCE_4)/sum_w
             loss_fun_w_sum+= self.args.w_losses_function[1]
 
+        if "edge" in self.args.loss_funcs:
+            edge_loss_val = edge_loss(pred_edges, edges)
+            loss += self.args.w_losses_function[1]*edge_loss_val
+            loss_fun_w_sum+= self.args.w_losses_function[2]
         loss = loss/loss_fun_w_sum
         return loss
 
@@ -612,13 +637,14 @@ class LitGDNet(pl.LightningModule):
 
         inputs.requires_grad=True
         outputs.requires_grad=True
-        f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
+        # pred_h, pred_l, pred_f = self(inputs)
+        pred_h, pred_l, pred_f, pred_ref, pred_edges = self(inputs)
 
-        loss = self.calc_loss_2(f_1_gpu, f_2_gpu, f_3_gpu, outputs, edges)
-        # loss = self.calc_loss(f_1_gpu, f_2_gpu, f_3_gpu, outputs)
-        # loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
-        # loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
-        # loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
+        loss = self.calc_loss_2(pred_f, pred_l, pred_h, pred_ref, pred_edges, outputs, edges)
+        # loss = self.calc_loss(pred_f, pred_l, pred_h, outputs)
+        # loss1 = lovasz_hinge(pred_f, outputs, per_image=False)*self.args.w_losses[0]
+        # loss2 = lovasz_hinge(pred_l, outputs, per_image=False)*self.args.w_losses[1]
+        # loss3 = lovasz_hinge(pred_h, outputs, per_image=False)*self.args.w_losses[2]
         # loss = (loss1 + loss2 + loss3)/self.sum_w_losses
 
 
@@ -629,29 +655,29 @@ class LitGDNet(pl.LightningModule):
         
         self.log('train_loss', loss, on_step=False, on_epoch=True)
 
-        self.train_acc(f_1_gpu, outputs)
+        self.train_acc(pred_f, outputs)
         self.log('train_acc', self.train_acc, on_step=False, on_epoch=True)
         
         if "F1" in self.args.metric_log:
-            train_F1 = pl.metrics.functional.f1(f_1_gpu, outputs, num_classes=1, threshold=thresh)
+            train_F1 = pl.metrics.functional.f1(pred_f, outputs, num_classes=1, threshold=thresh)
             self.log('train_F1', train_F1, on_step=False, on_epoch=True)
         
         if "FBeta" in self.args.metric_log:
-            train_FBeta = pl.metrics.functional.fbeta(f_1_gpu, outputs, num_classes=1, beta=0.5, threshold=thresh)
+            train_FBeta = pl.metrics.functional.fbeta(pred_f, outputs, num_classes=1, beta=0.5, threshold=thresh)
             self.log('train_FBeta', train_FBeta, on_step=False, on_epoch=True)
         
         if "precision" in self.args.metric_log:
-            train_avg_precision = pl.metrics.functional.average_precision(f_1_gpu, outputs, pos_label=1)
+            train_avg_precision = pl.metrics.functional.average_precision(pred_f, outputs, pos_label=1)
             self.log('train_avg_precision', train_avg_precision, on_step=False, on_epoch=True)
 
         if "recall" in self.args.metric_log:
-            train_recall = pl.metrics.functional.classification.recall(f_1_gpu, outputs)
+            train_recall = pl.metrics.functional.classification.recall(pred_f, outputs)
             self.log('train_recall', train_recall, on_step=False, on_epoch=True)
 
         if "iou" in self.args.metric_log:
             t = torch.tensor(thresh)
             out_int = outputs.int()
-            res_int = (f_1_gpu>t).int()
+            res_int = (pred_f>t).int()
             train_iou = pl.metrics.functional.classification.iou(res_int, out_int)
             self.log('train_iou', train_iou, on_step=False, on_epoch=True)
 
@@ -660,18 +686,21 @@ class LitGDNet(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         inputs = batch[0]
         outputs = batch[1]
+        edges = batch[2]
         input_size = inputs.shape
         input_size = list(input_size)
 
         inputs.requires_grad=False
         outputs.requires_grad=False
         
-        f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
+        pred_h, pred_l, pred_f, pred_ref, pred_edges = self(inputs)
 
-        loss = self.calc_loss(f_1_gpu, f_2_gpu, f_3_gpu, outputs)
-        # loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
-        # loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
-        # loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
+        loss = self.calc_loss_2(pred_f, pred_l, pred_h, pred_ref, pred_edges, outputs, edges)
+
+        # loss = self.calc_loss(pred_f, pred_l, pred_h, outputs)
+        # loss1 = lovasz_hinge(pred_f, outputs, per_image=False)*self.args.w_losses[0]
+        # loss2 = lovasz_hinge(pred_l, outputs, per_image=False)*self.args.w_losses[1]
+        # loss3 = lovasz_hinge(pred_h, outputs, per_image=False)*self.args.w_losses[2]
         # loss = (loss1 + loss2 + loss3)/self.sum_w_losses
 
         #################################
@@ -681,29 +710,29 @@ class LitGDNet(pl.LightningModule):
 
         self.log('val_loss', loss, on_epoch=True)
 
-        self.val_acc(f_1_gpu, outputs)
+        self.val_acc(pred_f, outputs)
         self.log('val_acc', self.val_acc, on_epoch=True)
 
         if "F1" in self.args.metric_log:
-            val_F1 = pl.metrics.functional.f1(f_1_gpu, outputs, num_classes=1, threshold=thresh)
+            val_F1 = pl.metrics.functional.f1(pred_f, outputs, num_classes=1, threshold=thresh)
             self.log('val_F1', val_F1, on_epoch=True)
         
         if "FBeta" in self.args.metric_log:
-            val_FBeta = pl.metrics.functional.fbeta(f_1_gpu, outputs, num_classes=1, beta=0.5, threshold=thresh)
+            val_FBeta = pl.metrics.functional.fbeta(pred_f, outputs, num_classes=1, beta=0.5, threshold=thresh)
             self.log('val_FBeta', val_FBeta, on_epoch=True)
         
         if "precision" in self.args.metric_log:
-            val_avg_precision = pl.metrics.functional.average_precision(f_1_gpu, outputs, pos_label=1)
+            val_avg_precision = pl.metrics.functional.average_precision(pred_f, outputs, pos_label=1)
             self.log('val_avg_precision', val_avg_precision, on_epoch=True)
 
         if "recall" in self.args.metric_log:
-            val_recall = pl.metrics.functional.classification.recall(f_1_gpu, outputs)
+            val_recall = pl.metrics.functional.classification.recall(pred_f, outputs)
             self.log('val_recall', val_recall, on_epoch=True)
 
         if "iou" in self.args.metric_log:
             t = torch.tensor(self.args.iou_threshold)
             out_int = outputs.int()
-            res_int = (f_1_gpu>t).int()
+            res_int = (pred_f>t).int()
             val_iou = pl.metrics.functional.classification.iou(res_int, out_int)
             self.log('val_iou', val_iou, on_epoch=True)
 
@@ -727,30 +756,42 @@ class LitGDNet(pl.LightningModule):
             if len(self.args.device_ids) > 0:
                 inputs = inputs.cuda(self.args.device_ids[0])
                 outputs = outputs.cuda(self.args.device_ids[0])
-            f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
-            f_1 = f_1_gpu.data.cpu()
+            pred_h, pred_l, pred_f, pred_ref, pred_edges = self(inputs)
+            f_1 = pred_f.data.cpu()
             rev_size = [batch["size"][0][1], batch["size"][0][0]]
             image1_size = batch["size"][0]
             f_1_trans = np.array(transforms.Resize(rev_size)(to_pil(f_1[0])))
             f_1_crf = crf_refine(np.array(batch["r_img"][0]), f_1_trans)
 
-            f_2 = f_2_gpu.data.cpu()
+            f_2 = pred_l.data.cpu()
             f_2_trans = np.array(transforms.Resize(rev_size)(to_pil(f_2[0])))
             f_2_crf = crf_refine(np.array(batch["r_img"][0]), f_2_trans)
 
-            f_3 = f_3_gpu.data.cpu()
+            f_3 = pred_h.data.cpu()
             f_3_trans = np.array(transforms.Resize(rev_size)(to_pil(f_3[0])))
             f_3_crf = crf_refine(np.array(batch["r_img"][0]), f_3_trans)
+            
+            f_ref = pred_ref.data.cpu()
+            f_ref_trans = np.array(transforms.Resize(rev_size)(to_pil(f_ref[0])))
+            f_ref_crf = crf_refine(np.array(batch["r_img"][0]), f_ref_trans)
+            
+            f_edges = pred_edges.data.cpu()
+            f_edges_trans = np.array(transforms.Resize(rev_size)(to_pil(f_edges[0])))
+            f_edges_crf = crf_refine(np.array(batch["r_img"][0]), f_edges_trans)
             
             img_res = Image.fromarray(f_1_crf)
             img_res2 = Image.fromarray(f_2_crf)
             img_res3 = Image.fromarray(f_3_crf)
+            img_resref = Image.fromarray(f_ref_crf)
+            img_resedges = Image.fromarray(f_edges_crf)
 
             real_image = np.array(batch["r_img"][0])
             real_mask = 255-np.array(batch["r_mask"][0])
             img_res_1 = 255-np.array(f_1_crf)
             img_res_2 = 255-np.array(f_2_crf)
             img_res_3 = 255-np.array(f_3_crf)
+            img_res_ref = 255-np.array(f_ref_crf)
+            img_res_edges = 255-np.array(f_edges_crf)
 
             class_labels = {0:"glass"}
 
@@ -769,6 +810,14 @@ class LitGDNet(pl.LightningModule):
                 },
                 "h_prediction": {
                     "mask_data": img_res_3,
+                    "class_labels": class_labels
+                },
+                "ref_prediction": {
+                    "mask_data": img_res_ref,
+                    "class_labels": class_labels
+                },
+                "edge_prediction": {
+                    "mask_data": img_res_edges,
                     "class_labels": class_labels
                 }
             })
@@ -792,6 +841,14 @@ class LitGDNet(pl.LightningModule):
                 new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name,
                                                         "Eval_Epoch: " + str(self.val_iter) +"_"+ str(i) +"_h_l_Pred.png"))
 
+                new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
+                new_image.paste(batch["r_edges"][0],(0,0))
+                new_image.paste(img_resref,(image1_size[0],0))
+                new_image.paste(img_resedges,(image1_size[0]*2,0))
+
+                new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name,
+                                                        "Eval_Epoch: " + str(self.val_iter) +"_"+ str(i) +"_ref_edg_Pred.png"))
+
         # The number of validation itteration
         self.val_iter +=1 
 
@@ -813,12 +870,12 @@ class LitGDNet(pl.LightningModule):
         inputs.requires_grad=False
         outputs.requires_grad=False
         
-        f_3_gpu, f_2_gpu, f_1_gpu = self(inputs)
+        pred_h, pred_l, pred_f, pred_ref, pred_edges = self(inputs)
 
-        loss = self.calc_loss(f_1_gpu, f_2_gpu, f_3_gpu, outputs)
-        # loss1 = lovasz_hinge(f_1_gpu, outputs, per_image=False)*self.args.w_losses[0]
-        # loss2 = lovasz_hinge(f_2_gpu, outputs, per_image=False)*self.args.w_losses[1]
-        # loss3 = lovasz_hinge(f_3_gpu, outputs, per_image=False)*self.args.w_losses[2]
+        loss = self.calc_loss(pred_f, pred_l, pred_h, outputs)
+        # loss1 = lovasz_hinge(pred_f, outputs, per_image=False)*self.args.w_losses[0]
+        # loss2 = lovasz_hinge(pred_l, outputs, per_image=False)*self.args.w_losses[1]
+        # loss3 = lovasz_hinge(pred_h, outputs, per_image=False)*self.args.w_losses[2]
         # loss = (loss1 + loss2 + loss3)/self.sum_w_losses
 
         #################################
@@ -828,25 +885,25 @@ class LitGDNet(pl.LightningModule):
 
         self.log('test_loss', loss, on_epoch=True)
 
-        # self.test_acc(f_1_gpu, outputs)
+        # self.test_acc(pred_f, outputs)
         # self.log('test_acc', self.test_acc, on_epoch=True)
 
         if "F1" in self.args.metric_log:
-            test_F1 = pl.metrics.functional.f1(f_1_gpu, outputs, num_classes=1, threshold=thresh)
+            test_F1 = pl.metrics.functional.f1(pred_f, outputs, num_classes=1, threshold=thresh)
             self.log('test_F1', test_F1, on_epoch=True)
         
         if "FBeta" in self.args.metric_log:
-            test_FBeta = pl.metrics.functional.fbeta(f_1_gpu, outputs, num_classes=1, beta=0.5, threshold=thresh)
+            test_FBeta = pl.metrics.functional.fbeta(pred_f, outputs, num_classes=1, beta=0.5, threshold=thresh)
             self.log('test_FBeta', test_FBeta, on_epoch=True)
 
         if "precision" in self.args.metric_log:
-            test_avg_precision = pl.metrics.functional.average_precision(f_1_gpu, outputs, pos_label=1)
+            test_avg_precision = pl.metrics.functional.average_precision(pred_f, outputs, pos_label=1)
             self.log('test_avg_precision', test_avg_precision, on_epoch=True)
 
         if "iou" in self.args.metric_log:
             t = torch.tensor(self.args.iou_threshold)
             out_int = outputs.int()
-            res_int = (f_1_gpu>t).int()
+            res_int = (pred_f>t).int()
             test_iou = pl.metrics.functional.classification.iou(res_int, out_int)
             self.log('test_iou', test_iou, on_epoch=True)
 
@@ -855,7 +912,7 @@ class LitGDNet(pl.LightningModule):
             for i in range(l):
                 img_size = sizes[i]
                 rev_size = [img_size[1], img_size[0]]
-                f_1 = f_1_gpu.data.cpu()
+                f_1 = pred_f.data.cpu()
                 f_1_trans = np.array(transforms.Resize(rev_size)(to_pil(f_1[0])))
                 f_1_crf = crf_refine(real_inputs[i], f_1_trans)
                 img_res = Image.fromarray(f_1_crf)
@@ -894,6 +951,12 @@ class LitGDNet(pl.LightningModule):
             f1 = np.array(transforms.Resize((h, w))(to_pil(f1)))
             f2 = np.array(transforms.Resize((h, w))(to_pil(f2)))
             f3 = np.array(transforms.Resize((h, w))(to_pil(f3)))
+
+            if self.args.crf:
+                f1 = crf_refine(np.array(img.convert('RGB')), f1)
+                f2 = crf_refine(np.array(img.convert('RGB')), f2)
+                f3 = crf_refine(np.array(img.convert('RGB')), f3)
+
             #################################### My Addition ####################################
             image1_size = img.size
             new_image = Image.new('RGB',(2*image1_size[0], image1_size[1]), (250,250,250))
@@ -903,10 +966,10 @@ class LitGDNet(pl.LightningModule):
             new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name, img_name[:-4] + "_both" +".png"))
             #####################################################################################
 
-            if self.args.crf:
-                f1 = crf_refine(np.array(img.convert('RGB')), f1)
-                f2 = crf_refine(np.array(img.convert('RGB')), f2)
-                f3 = crf_refine(np.array(img.convert('RGB')), f3)
+            # if self.args.crf:
+            #     f1 = crf_refine(np.array(img.convert('RGB')), f1)
+            #     f2 = crf_refine(np.array(img.convert('RGB')), f2)
+            #     f3 = crf_refine(np.array(img.convert('RGB')), f3)
 
             ######################################### Old ############################################
             # Image.fromarray(f1).save(os.path.join(ckpt_path, exp_name, '%s_%s' % (exp_name, args['snapshot']),

@@ -61,12 +61,12 @@ def get_args():
                         help='Freeze the resnet101 backbone')
     parser.add_argument('--freeze_LCFI', action='store_true', default=False,
                         help='Freeze the LCFI modules')
-    parser.add_argument('--loss_funcs', nargs='+', type=str, default=["lovasz", "BCE"],
-                        help='The loss function to use (default ["lovasz", "BCE"])')
-    parser.add_argument('--w_losses', nargs='+', type=float, default=[1, 1, 1],
-                        help='Weights for the 3 output losses (default [1, 1, 1])')
-    parser.add_argument('--w_losses_function', nargs='+', type=float, default=[1, 0.5],
-                        help='Weights for the used loss funtions (default [1, 1])')
+    parser.add_argument('--loss_funcs', nargs='+', type=str, default=["lovasz", "BCE", "edge"],
+                        help='The loss function to use (default ["lovasz", "BCE", "edge"])')
+    parser.add_argument('--w_losses', nargs='+', type=float, default=[1, 1, 1, 1],
+                        help='Weights for the 5 output losses (default [1, 1, 1, 1])')
+    parser.add_argument('--w_losses_function', nargs='+', type=float, default=[1, 0.5, 1],
+                        help='Weights for the used loss funtions (default [1, 0.5, 1])')
     parser.add_argument('--val_every', type=int, default=5,
                         help='Do validation epoch after how many Training epoch (default: 5)')
     parser.add_argument('--save_top', type=int, default=5,
