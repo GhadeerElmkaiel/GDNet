@@ -430,8 +430,9 @@ class LitGDNet(pl.LightningModule):
         self.l_predict = nn.Conv2d(64, 1, 3, 1, 1)
         self.final_predict = nn.Conv2d(320, 1, 3, 1, 1)
 
+        self.fusion_with_edge = CBAM(4,2)
         # Refinement
-        self.refinement = nn.Sequential(nn.Conv2d(2, 1, 3, 1, 1), nn.Conv2d(1, 1, 3, 1, 1), nn.BatchNorm2d(1), nn.ReLU())
+        self.refinement = nn.Sequential(nn.Conv2d(4, 1, 3, 1, 1), nn.Conv2d(1, 1, 3, 1, 1), nn.BatchNorm2d(1), nn.ReLU())
 
         # self.h5_up.eval()
         # self.h3_down.eval()
@@ -531,15 +532,22 @@ class LitGDNet(pl.LightningModule):
         # final predict
         final_predict = self.final_predict(final_fusion)
 
+        # Merge the edge
+        h_for_fusion = F.interpolate(h_predict, size=final_predict.size()[2:], mode='bilinear', align_corners=True)
+        l_for_fusion = F.interpolate(l_predict, size=final_predict.size()[2:], mode='bilinear', align_corners=True)
+        edge_for_fusion = F.interpolate(edge_fusion, size=final_predict.size()[2:], mode='bilinear', align_corners=True)
+        fusion_with_edge = self.fusion_with_edge(torch.cat((h_for_fusion, l_for_fusion, final_predict, edge_for_fusion), 1))
+        refine_predict = self.refinement(fusion_with_edge)
+
         # rescale to original size
         h_predict = F.interpolate(h_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
         l_predict = F.interpolate(l_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
         final_predict = F.interpolate(final_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
+        refine_predict = F.interpolate(refine_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
         edge_predict = F.interpolate(edge_fusion, size=x.size()[2:], mode='bilinear', align_corners=True)
 
 
         # final refined prediction
-        refine_predict = self.refinement(torch.cat((edge_predict, final_predict), 1))
 
         return torch.sigmoid(h_predict), torch.sigmoid(l_predict), torch.sigmoid(final_predict), torch.sigmoid(refine_predict), torch.sigmoid(edge_predict)
 
@@ -579,7 +587,8 @@ class LitGDNet(pl.LightningModule):
             loss2 = lovasz_hinge(pred_l, outputs, per_image=False)*self.args.w_losses[1]
             loss3 = lovasz_hinge(pred_f, outputs, per_image=False)*self.args.w_losses[2]
             loss4 = lovasz_hinge(pred_ref, outputs, per_image=False)*self.args.w_losses[3]
-            sum_w = self.args.w_losses[0] + self.args.w_losses[1] + self.args.w_losses[2] + self.args.w_losses[3]
+            # sum_w = self.args.w_losses[0] + self.args.w_losses[1] + self.args.w_losses[2] + self.args.w_losses[3]
+            sum_w = sum(self.args.w_losses)
             loss += self.args.w_losses_function[0]*(loss1 + loss2 + loss3 + loss4)/sum_w
             # loss += self.args.w_losses_function[0]*(loss1 + loss2 + loss3 + loss4)/self.sum_w_losses
             loss_fun_w_sum+= self.args.w_losses_function[0]
@@ -589,7 +598,8 @@ class LitGDNet(pl.LightningModule):
             loss_BCE_2 = F.binary_cross_entropy_with_logits(pred_l, outputs)*self.args.w_losses[1]
             loss_BCE_3 = F.binary_cross_entropy_with_logits(pred_f, outputs)*self.args.w_losses[2]
             loss_BCE_4 = F.binary_cross_entropy_with_logits(pred_ref, outputs)*self.args.w_losses[3]
-            sum_w = self.args.w_losses[0] + self.args.w_losses[1] + self.args.w_losses[2] + self.args.w_losses[3]
+            # sum_w = self.args.w_losses[0] + self.args.w_losses[1] + self.args.w_losses[2] + self.args.w_losses[3]
+            sum_w = sum(self.args.w_losses)
             # loss_BCE_edge = F.binary_cross_entropy_with_logits(pred_edges, edges)*self.args.w_losses[4]
             loss += self.args.w_losses_function[1]*(loss_BCE_1 + loss_BCE_2 + loss_BCE_3 + loss_BCE_4)/sum_w
             loss_fun_w_sum+= self.args.w_losses_function[1]
@@ -944,26 +954,49 @@ class LitGDNet(pl.LightningModule):
             w, h = img.size
             # img_var = torch.tensor(self.img_transform(img).unsqueeze(0)).cuda(self.args.device_ids[0])
             img_var = torch.tensor(self.img_transform(img).unsqueeze(0))
-            f1, f2, f3 = self(img_var)
-            f1 = f1.data.squeeze(0).cpu()
-            f2 = f2.data.squeeze(0).cpu()
-            f3 = f3.data.squeeze(0).cpu()
-            f1 = np.array(transforms.Resize((h, w))(to_pil(f1)))
-            f2 = np.array(transforms.Resize((h, w))(to_pil(f2)))
-            f3 = np.array(transforms.Resize((h, w))(to_pil(f3)))
+            pred_h, pred_l, pred_f, pred_ref, pred_edges = self(img_var)
+            # pred_h, pred_l, pred_f = self(img_var)
+            pred_h = pred_h.data.squeeze(0).cpu()
+            pred_l = pred_l.data.squeeze(0).cpu()
+            pred_f = pred_f.data.squeeze(0).cpu()
+            pred_ref = pred_ref.data.squeeze(0).cpu()
+            pred_edges = pred_edges.data.squeeze(0).cpu()
+            pred_h = np.array(transforms.Resize((h, w))(to_pil(pred_h)))
+            pred_l = np.array(transforms.Resize((h, w))(to_pil(pred_l)))
+            pred_f = np.array(transforms.Resize((h, w))(to_pil(pred_f)))
+            pred_ref = np.array(transforms.Resize((h, w))(to_pil(pred_ref)))
+            pred_edges = np.array(transforms.Resize((h, w))(to_pil(pred_edges)))
 
             if self.args.crf:
-                f1 = crf_refine(np.array(img.convert('RGB')), f1)
-                f2 = crf_refine(np.array(img.convert('RGB')), f2)
-                f3 = crf_refine(np.array(img.convert('RGB')), f3)
+                pred_h = crf_refine(np.array(img.convert('RGB')), pred_h)
+                pred_l = crf_refine(np.array(img.convert('RGB')), pred_l)
+                pred_f = crf_refine(np.array(img.convert('RGB')), pred_f)
+                pred_ref = crf_refine(np.array(img.convert('RGB')), pred_ref)
+                pred_edges = crf_refine(np.array(img.convert('RGB')), pred_edges)
 
             #################################### My Addition ####################################
             image1_size = img.size
-            new_image = Image.new('RGB',(2*image1_size[0], image1_size[1]), (250,250,250))
-            img_res = Image.fromarray(f3)
+            # new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
+            # img_res = Image.fromarray(pred_f)
+            # img_res_ref = Image.fromarray(pred_ref)
+            # new_image.paste(img,(0,0))
+            # new_image.paste(img_res,(image1_size[0],0))
+            # new_image.paste(img_res_ref,(image1_size[0]*2,0))
+            # new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name, img_name[:-4] +".png"))
+            # new_image = Image.new('RGB',(2*image1_size[0], image1_size[1]), (250,250,250))
+            # img_res = Image.fromarray(pred_f)
+            # new_image.paste(img,(0,0))
+            # new_image.paste(img_res,(image1_size[0],0))
+            # new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name, img_name[:-4] +".png"))
+            
+            new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
+            img_res = Image.fromarray(pred_f)
+            img_res_edges = Image.fromarray(pred_edges)
             new_image.paste(img,(0,0))
-            new_image.paste(img_res,(image1_size[0],0))
-            new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name, img_name[:-4] + "_both" +".png"))
+            new_image.paste(img_res,(image1_size[0]*1,0))
+            new_image.paste(img_res_edges,(image1_size[0]*2,0))
+            new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name, img_name[:-4] + "_edges" +".png"))
+            
             #####################################################################################
 
             # if self.args.crf:

@@ -29,15 +29,17 @@ def init_args(args):
     args.fast_dev_run = False
     args.crf = True
     args.wandb = True
+    # args.wandb = False
     # args.gdd_training_root = [args.GD_dataset_path, args.Sber_dataset_path, args.no_glass_dataset_path]
-    args.gdd_training_root = [args.Sber_dataset_path, args.GD_dataset_path]
+    args.gdd_training_root = [args.Sber_dataset_path]
     # args.gdd_training_root.append(args.Sber_dataset_path)
     args.epochs = 300
     args.ckpt_path = "ckpt/"
-    args.ckpt_name = "33-Fine-Tuning-all-Mixed-sber_ds-GDNet-L-lovasz-BCE-/33-Fine-Tuning-all-Mixed-sber_ds-GDNet-L-lovasz-BCE--epoch=233-val_loss=0.33.ckpt"
+    args.ckpt_name = "95-Fine-Tuning-all-sber_ds-L-lovasz-BCE-edge-/95-Fine-Tuning-all-sber_ds-L-lovasz-BCE-edge-final-epoch.ckpt"
     args.gdd_eval_root = "GDNet/eval"
+    # args.gdd_eval_root = "GDNet/mini_eval"
 
-    args.debugging = False
+    args.debugging = True
 
     if args.debugging :
         args.wandb = False
@@ -188,6 +190,7 @@ if args.cuda:
 device_ids = args.device_ids
 if args.cuda:
     torch.cuda.set_device(device_ids[0])
+
 
 # Init Weights and Biases
 model_loggers = []
