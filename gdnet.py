@@ -432,7 +432,8 @@ class LitGDNet(pl.LightningModule):
 
         self.fusion_with_edge = CBAM(4,2)
         # Refinement
-        self.refinement = nn.Sequential(nn.Conv2d(4, 1, 3, 1, 1), nn.Conv2d(1, 1, 3, 1, 1), nn.BatchNorm2d(1), nn.ReLU())
+        self.final_refinement_conv = nn.Sequential(nn.Conv2d(4, 4, 3, 1, 1), nn.BatchNorm2d(4), nn.ReLU())
+        self.final_refinement = nn.Conv2d(4, 1, 3, 1, 1)
 
         # self.h5_up.eval()
         # self.h3_down.eval()
@@ -537,7 +538,8 @@ class LitGDNet(pl.LightningModule):
         l_for_fusion = F.interpolate(l_predict, size=final_predict.size()[2:], mode='bilinear', align_corners=True)
         edge_for_fusion = F.interpolate(edge_fusion, size=final_predict.size()[2:], mode='bilinear', align_corners=True)
         fusion_with_edge = self.fusion_with_edge(torch.cat((h_for_fusion, l_for_fusion, final_predict, edge_for_fusion), 1))
-        refine_predict = self.refinement(fusion_with_edge)
+        refine_predict = self.final_refinement_conv(fusion_with_edge)
+        refine_predict = self.final_refinement(refine_predict)
 
         # rescale to original size
         h_predict = F.interpolate(h_predict, size=x.size()[2:], mode='bilinear', align_corners=True)
@@ -757,115 +759,116 @@ class LitGDNet(pl.LightningModule):
 
         # Array of images to log
         wandb_images = []
-        for i in range(self.args.num_log_img):
-            batch = self.eval_set.sample(1)
-            inputs = batch["img"]
-            outputs = batch["mask"]
-            inputs = torch.from_numpy(inputs)
-            outputs = torch.tensor(outputs)
-            if len(self.args.device_ids) > 0:
-                inputs = inputs.cuda(self.args.device_ids[0])
-                outputs = outputs.cuda(self.args.device_ids[0])
-            pred_h, pred_l, pred_f, pred_ref, pred_edges = self(inputs)
-            f_1 = pred_f.data.cpu()
-            rev_size = [batch["size"][0][1], batch["size"][0][0]]
-            image1_size = batch["size"][0]
-            f_1_trans = np.array(transforms.Resize(rev_size)(to_pil(f_1[0])))
-            f_1_crf = crf_refine(np.array(batch["r_img"][0]), f_1_trans)
+        if not self.args.debugging:
+            for i in range(self.args.num_log_img):
+                batch = self.eval_set.sample(1)
+                inputs = batch["img"]
+                outputs = batch["mask"]
+                inputs = torch.from_numpy(inputs)
+                outputs = torch.tensor(outputs)
+                if len(self.args.device_ids) > 0:
+                    inputs = inputs.cuda(self.args.device_ids[0])
+                    outputs = outputs.cuda(self.args.device_ids[0])
+                pred_h, pred_l, pred_f, pred_ref, pred_edges = self(inputs)
+                f_1 = pred_f.data.cpu()
+                rev_size = [batch["size"][0][1], batch["size"][0][0]]
+                image1_size = batch["size"][0]
+                f_1_trans = np.array(transforms.Resize(rev_size)(to_pil(f_1[0])))
+                f_1_crf = crf_refine(np.array(batch["r_img"][0]), f_1_trans)
 
-            f_2 = pred_l.data.cpu()
-            f_2_trans = np.array(transforms.Resize(rev_size)(to_pil(f_2[0])))
-            f_2_crf = crf_refine(np.array(batch["r_img"][0]), f_2_trans)
+                f_2 = pred_l.data.cpu()
+                f_2_trans = np.array(transforms.Resize(rev_size)(to_pil(f_2[0])))
+                f_2_crf = crf_refine(np.array(batch["r_img"][0]), f_2_trans)
 
-            f_3 = pred_h.data.cpu()
-            f_3_trans = np.array(transforms.Resize(rev_size)(to_pil(f_3[0])))
-            f_3_crf = crf_refine(np.array(batch["r_img"][0]), f_3_trans)
-            
-            f_ref = pred_ref.data.cpu()
-            f_ref_trans = np.array(transforms.Resize(rev_size)(to_pil(f_ref[0])))
-            f_ref_crf = crf_refine(np.array(batch["r_img"][0]), f_ref_trans)
-            
-            f_edges = pred_edges.data.cpu()
-            f_edges_trans = np.array(transforms.Resize(rev_size)(to_pil(f_edges[0])))
-            f_edges_crf = crf_refine(np.array(batch["r_img"][0]), f_edges_trans)
-            
-            img_res = Image.fromarray(f_1_crf)
-            img_res2 = Image.fromarray(f_2_crf)
-            img_res3 = Image.fromarray(f_3_crf)
-            img_resref = Image.fromarray(f_ref_crf)
-            img_resedges = Image.fromarray(f_edges_crf)
+                f_3 = pred_h.data.cpu()
+                f_3_trans = np.array(transforms.Resize(rev_size)(to_pil(f_3[0])))
+                f_3_crf = crf_refine(np.array(batch["r_img"][0]), f_3_trans)
+                
+                f_ref = pred_ref.data.cpu()
+                f_ref_trans = np.array(transforms.Resize(rev_size)(to_pil(f_ref[0])))
+                f_ref_crf = crf_refine(np.array(batch["r_img"][0]), f_ref_trans)
+                
+                f_edges = pred_edges.data.cpu()
+                f_edges_trans = np.array(transforms.Resize(rev_size)(to_pil(f_edges[0])))
+                f_edges_crf = crf_refine(np.array(batch["r_img"][0]), f_edges_trans)
+                
+                img_res = Image.fromarray(f_1_crf)
+                img_res2 = Image.fromarray(f_2_crf)
+                img_res3 = Image.fromarray(f_3_crf)
+                img_resref = Image.fromarray(f_ref_crf)
+                img_resedges = Image.fromarray(f_edges_crf)
 
-            real_image = np.array(batch["r_img"][0])
-            real_mask = 255-np.array(batch["r_mask"][0])
-            img_res_1 = 255-np.array(f_1_crf)
-            img_res_2 = 255-np.array(f_2_crf)
-            img_res_3 = 255-np.array(f_3_crf)
-            img_res_ref = 255-np.array(f_ref_crf)
-            img_res_edges = 255-np.array(f_edges_crf)
+                real_image = np.array(batch["r_img"][0])
+                real_mask = 255-np.array(batch["r_mask"][0])
+                img_res_1 = 255-np.array(f_1_crf)
+                img_res_2 = 255-np.array(f_2_crf)
+                img_res_3 = 255-np.array(f_3_crf)
+                img_res_ref = 255-np.array(f_ref_crf)
+                img_res_edges = 255-np.array(f_edges_crf)
 
-            class_labels = {0:"glass"}
+                class_labels = {0:"glass"}
 
-            mask_img = wandb.Image(real_image, masks={
-                "ground_truth":{
-                    "mask_data": real_mask,
-                    "class_labels": class_labels
-                },
-                "prediction": {
-                    "mask_data": img_res_1,
-                    "class_labels": class_labels
-                },
-                "l_prediction": {
-                    "mask_data": img_res_2,
-                    "class_labels": class_labels
-                },
-                "h_prediction": {
-                    "mask_data": img_res_3,
-                    "class_labels": class_labels
-                },
-                "ref_prediction": {
-                    "mask_data": img_res_ref,
-                    "class_labels": class_labels
-                },
-                "edge_prediction": {
-                    "mask_data": img_res_edges,
-                    "class_labels": class_labels
-                }
-            })
-            wandb_images.append(mask_img)
-            
-            if self.args.developer_mode:
+                mask_img = wandb.Image(real_image, masks={
+                    "ground_truth":{
+                        "mask_data": real_mask,
+                        "class_labels": class_labels
+                    },
+                    "prediction": {
+                        "mask_data": img_res_1,
+                        "class_labels": class_labels
+                    },
+                    "l_prediction": {
+                        "mask_data": img_res_2,
+                        "class_labels": class_labels
+                    },
+                    "h_prediction": {
+                        "mask_data": img_res_3,
+                        "class_labels": class_labels
+                    },
+                    "ref_prediction": {
+                        "mask_data": img_res_ref,
+                        "class_labels": class_labels
+                    },
+                    "edge_prediction": {
+                        "mask_data": img_res_edges,
+                        "class_labels": class_labels
+                    }
+                })
+                wandb_images.append(mask_img)
+                
+                if self.args.developer_mode:
 
-                new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
-                new_image.paste(batch["r_img"][0],(0,0))
-                new_image.paste(batch["r_mask"][0],(image1_size[0],0))
-                new_image.paste(img_res,(image1_size[0]*2,0))
+                    new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
+                    new_image.paste(batch["r_img"][0],(0,0))
+                    new_image.paste(batch["r_mask"][0],(image1_size[0],0))
+                    new_image.paste(img_res,(image1_size[0]*2,0))
 
-                new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name,
-                                                        "Eval_Epoch: " + str(self.val_iter) +"_"+ str(i) +"_Pred.png"))
+                    new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name,
+                                                            "Eval_Epoch: " + str(self.val_iter) +"_"+ str(i) +"_Pred.png"))
 
-                new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
-                new_image.paste(batch["r_mask"][0],(0,0))
-                new_image.paste(img_res2,(image1_size[0],0))
-                new_image.paste(img_res3,(image1_size[0]*2,0))
+                    new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
+                    new_image.paste(batch["r_mask"][0],(0,0))
+                    new_image.paste(img_res2,(image1_size[0],0))
+                    new_image.paste(img_res3,(image1_size[0]*2,0))
 
-                new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name,
-                                                        "Eval_Epoch: " + str(self.val_iter) +"_"+ str(i) +"_h_l_Pred.png"))
+                    new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name,
+                                                            "Eval_Epoch: " + str(self.val_iter) +"_"+ str(i) +"_h_l_Pred.png"))
 
-                new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
-                new_image.paste(batch["r_edges"][0],(0,0))
-                new_image.paste(img_resref,(image1_size[0],0))
-                new_image.paste(img_resedges,(image1_size[0]*2,0))
+                    new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
+                    new_image.paste(batch["r_edges"][0],(0,0))
+                    new_image.paste(img_resref,(image1_size[0],0))
+                    new_image.paste(img_resedges,(image1_size[0]*2,0))
 
-                new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name,
-                                                        "Eval_Epoch: " + str(self.val_iter) +"_"+ str(i) +"_ref_edg_Pred.png"))
+                    new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name,
+                                                            "Eval_Epoch: " + str(self.val_iter) +"_"+ str(i) +"_ref_edg_Pred.png"))
 
-        # The number of validation itteration
-        self.val_iter +=1 
+            # The number of validation itteration
+            self.val_iter +=1 
 
-        model_filename = f"model_{str(self.global_step).zfill(5)}.onnx"
-        if self.args.wandb:
-            wandb.log({"examples_"+ str(self.val_iter): wandb_images})
-            wandb.save(model_filename)
+            model_filename = f"model_{str(self.global_step).zfill(5)}.onnx"
+            if self.args.wandb:
+                wandb.log({"examples_"+ str(self.val_iter): wandb_images})
+                wandb.save(model_filename)
 
 
     def test_step(self, batch, batch_idx):
@@ -989,6 +992,7 @@ class LitGDNet(pl.LightningModule):
             # new_image.paste(img_res,(image1_size[0],0))
             # new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name, img_name[:-4] +".png"))
             
+
             new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
             img_res = Image.fromarray(pred_f)
             img_res_edges = Image.fromarray(pred_edges)
@@ -996,6 +1000,13 @@ class LitGDNet(pl.LightningModule):
             new_image.paste(img_res,(image1_size[0]*1,0))
             new_image.paste(img_res_edges,(image1_size[0]*2,0))
             new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name, img_name[:-4] + "_edges" +".png"))
+            
+            new_image = Image.new('RGB',(3*image1_size[0], image1_size[1]), (250,250,250))
+            img_res_ref = Image.fromarray(pred_ref)
+            new_image.paste(img,(0,0))
+            new_image.paste(img_res,(image1_size[0]*1,0))
+            new_image.paste(img_res_ref,(image1_size[0]*2,0))
+            new_image.save(os.path.join(self.args.gdd_results_root, self.args.log_name, img_name[:-4] + "_ref" +".png"))
             
             #####################################################################################
 
