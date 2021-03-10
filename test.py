@@ -25,7 +25,7 @@ def init_args(args):
     args.batch_size = 10
     args.val_every = 3
     args.developer_mode = False
-    # args.load_model = True
+    args.load_model = False
     args.fast_dev_run = False
     args.crf = True
     args.wandb = True
@@ -35,7 +35,7 @@ def init_args(args):
     # args.gdd_training_root.append(args.Sber_dataset_path)
     args.epochs = 300
     args.ckpt_path = "ckpt/"
-    args.ckpt_name = "106-Mixed-sber_ds-GDNet-L-lovasz-BCE-edge-/106-Mixed-sber_ds-GDNet-L-lovasz-BCE-edge-final-epoch.ckpt"
+    args.ckpt_name = "109-Mixed-sber_ds-GDNet-L-lovasz-BCE-edge-/109-Mixed-sber_ds-GDNet-L-lovasz-BCE-edge-final-epoch.ckpt"
     args.gdd_eval_root = "GDNet/eval"
     # args.gdd_eval_root = "GDNet/mini_eval"
 
@@ -49,6 +49,8 @@ def init_args(args):
     if args.mode =="infer":
         args.load_model = True
 
+    if args.load_model == False:
+        args.ckpt_name = ""
 
 #######################################
 # Creating the name of the run

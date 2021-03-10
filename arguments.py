@@ -21,8 +21,8 @@ def get_args():
                         help='Use weights and biases (default: True)')
 
     # Logging parameters
-    parser.add_argument('--num_log_img', type=int, default=5,
-                        help='The Training batch size (default: 5)')
+    parser.add_argument('--num_log_img', type=int, default=2,
+                        help='The Training batch size (default: 2)')
     parser.add_argument('--metric_log', nargs='+', type=str, default=["iou", "recall", "precision", "FBeta", "F1"],
                         help='The metrics to log (default ["iou", "recall", "precision", "FBeta", "F1"])')
 
@@ -64,7 +64,7 @@ def get_args():
     parser.add_argument('--loss_funcs', nargs='+', type=str, default=["lovasz", "BCE", "edge"],
                         help='The loss function to use (default ["lovasz", "BCE", "edge"])')
     parser.add_argument('--w_losses', nargs='+', type=float, default=[1, 1, 1, 1],
-                        help='Weights for the 5 output losses (default [1, 1, 1, 1])')
+                        help='Weights for the 4 output losses (default [1, 1, 1, 1])')
     parser.add_argument('--w_losses_function', nargs='+', type=float, default=[1, 0.5, 1],
                         help='Weights for the used loss funtions (default [1, 0.5, 1])')
     parser.add_argument('--val_every', type=int, default=5,
